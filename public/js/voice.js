@@ -11,6 +11,11 @@
 
 import { VOICE } from "./config.js";
 
+// Built-in voices don't say whether they sound male or female, so this is a
+// list of known lower-pitched (male) voice names on Mac, Windows and Chrome.
+// Anything not listed is treated as higher-pitched.
+const LOWER_VOICES = /\b(Alex|Daniel|Aaron|Arthur|Gordon|Rishi|Reed|Rocko|Eddy|Grandpa|Jorge|Juan|Diego|Carlos|Thomas|Nicolas|Jacques|Yuri|Luca|Felipe|Majed|Maged|Tarik|Otoya|Hattori|Xander|Oliver|Lee|David|Mark|George|Guy|Pablo|Raul|Paul|Stefan|Pavel|Ravi|Naayf|Ichiro|Kangkang|Cosimo|Claude|Hemant|Andrew|Brian|Christopher|Eric|Roger|Alvaro|Henri|Conrad|Killian|Antonio|Dmitry|NamMinh|Keita|InJoon|Yunxi|Yunyang|Madhur|Hamed|Ostap|Angelo|Male)\b/i;
+
 // Novelty voices that ship with macOS. Never pick these.
 const NOVELTY = /^(Albert|Bad News|Bahh|Bells|Boing|Bubbles|Cellos|Good News|Jester|Organ|Pipe Organ|Superstar|Trinoids|Whisper|Wobble|Zarvox|Junior|Ralph|Fred|Kathy|Deranged|Hysterical)\b/i;
 
@@ -57,11 +62,27 @@ export function createVoice() {
       .map((x) => x.v);
   }
 
-  function pickVoice(lang, style) {
+  // pitchHz = the speaker's own voice pitch (if known), to pick a voice like theirs.
+  function pickVoice(lang, style, pitchHz) {
     const ranked = rankVoices(lang);
     if (!ranked.length) return null;
     // Galbot uses a different voice from the people when one is available.
-    return style === "galbot" && ranked.length > 1 ? ranked[1] : ranked[0];
+    if (style === "galbot") return ranked.length > 1 ? ranked[1] : ranked[0];
+    if (pitchHz) {
+      const wantLower = pitchHz < VOICE.lowVoiceBelowHz;
+      const match = ranked.find((v) => LOWER_VOICES.test(v.name) === wantLower);
+      if (match) return match;
+    }
+    return ranked[0];
+  }
+
+  // Nudge the chosen voice up or down a little toward the speaker's pitch.
+  function pitchFor(voiceObj, pitchHz) {
+    if (!pitchHz) return 1;
+    const voiceIsLower = LOWER_VOICES.test(voiceObj.name);
+    const typical = voiceIsLower ? 120 : 210; // rough pitch of a typical voice of that kind
+    const nudge = 1 + ((pitchHz - typical) / typical) * VOICE.matchStrength;
+    return Math.min(1.25, Math.max(0.75, nudge));
   }
 
   function setActive() {
@@ -75,14 +96,14 @@ export function createVoice() {
   }
 
   // Queue one chunk of speech. Returns false if it can't be spoken.
-  function speakChunk(text, lang, style, onStart) {
-    const voiceObj = pickVoice(lang, style);
+  function speakChunk(text, lang, style, onStart, pitchHz) {
+    const voiceObj = pickVoice(lang, style, pitchHz);
     if (!supported || !voiceObj || !text.trim()) return false;
     const u = new SpeechSynthesisUtterance(text);
     u.voice = voiceObj;
     u.lang = voiceObj.lang;
     u.rate = style === "galbot" ? VOICE.galbotRate : VOICE.personRate;
-    u.pitch = style === "galbot" ? VOICE.galbotPitch : 1;
+    u.pitch = style === "galbot" ? VOICE.galbotPitch : pitchFor(voiceObj, pitchHz);
     pending++;
     alive.add(u);
     let finished = false;
@@ -128,7 +149,7 @@ export function createVoice() {
     return final ? buf.length : -1;
   }
 
-  function stream({ lang, style = "person" }) {
+  function stream({ lang, style = "person", pitchHz = null }) {
     let buf = "";
     let ended = false;
     let resolveStarted;
@@ -149,7 +170,7 @@ export function createVoice() {
       while (buf && (cut = sentenceEnd(buf, final)) > 0) {
         const sentence = buf.slice(0, cut);
         buf = buf.slice(cut);
-        if (speakChunk(sentence, lang, style, onStart)) spokeAny = true;
+        if (speakChunk(sentence, lang, style, onStart, pitchHz)) spokeAny = true;
       }
     };
 

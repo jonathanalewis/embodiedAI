@@ -59,6 +59,11 @@ const CASES = [
 
   // --- Look-ups -------------------------------------------------------------
   { group: "Look-up", title: "Population of a city", langs: ["en", "es"], text: "Galbot, roughly how many people live in Lisbon?", expect: { route: "galbot", sources: true } },
+  {
+    group: "Look-up", title: "Add more detail about what was said", langs: ["en", "es"], text: "Galbot, can you look that up and give us a bit more detail?",
+    history: [{ who: "B", text: "Mi abuela vino de Oaxaca, donde se celebra la Guelaguetza.", translation: "My grandmother came from Oaxaca, where the Guelaguetza is celebrated." }],
+    expect: { route: "galbot", sources: true },
+  },
   { group: "Look-up", title: "Museum hours (asked in Spanish)", langs: ["es", "en"], text: "Galbot, ¿a qué hora cierra normalmente el Museo del Prado?", expect: { route: "galbot", sources: true } },
 
   // --- Wrong language / noise ------------------------------------------------

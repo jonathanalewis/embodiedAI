@@ -164,6 +164,41 @@ export function createDetector({ onStatus = () => {} } = {}) {
       return out;
     },
 
+    // True once the mic has recorded anything (works even if the model didn't load).
+    get hasAudio() {
+      return written > 0;
+    },
+
+    // How high or low someone's voice is: median pitch in Hz, or null.
+    // Used to pick a built-in voice that sounds a bit like them.
+    pitch(audio) {
+      const frame = 1024;
+      const minLag = Math.floor(RATE / 400); // highest voice we look for: 400 Hz
+      const maxLag = Math.floor(RATE / 70); // lowest: 70 Hz
+      const found = [];
+      for (let start = 0; start + frame + maxLag < audio.length; start += frame) {
+        let energy = 0;
+        for (let i = start; i < start + frame; i++) energy += audio[i] * audio[i];
+        if (energy / frame < 1e-4) continue; // silence
+        const corr = new Float32Array(maxLag + 1);
+        let best = 0;
+        for (let lag = minLag; lag <= maxLag; lag++) {
+          let sum = 0;
+          for (let i = start; i < start + frame; i++) sum += audio[i] * audio[i + lag];
+          corr[lag] = sum;
+          if (sum > best) best = sum;
+        }
+        if (best / energy < 0.5) continue; // not clearly voiced
+        // Take the first strong peak (the true pitch), not a later echo of it.
+        let lag = minLag;
+        while (lag < maxLag && !(corr[lag] >= 0.85 * best && corr[lag] >= corr[lag + 1])) lag++;
+        found.push(RATE / lag);
+      }
+      if (found.length < 3) return null;
+      found.sort((a, b) => a - b);
+      return found[Math.floor(found.length / 2)];
+    },
+
     // Which of `codes` was spoken? Returns { code, confidence 0..1, ms }.
     whichLanguage(audio, codes) {
       return queued(async () => {

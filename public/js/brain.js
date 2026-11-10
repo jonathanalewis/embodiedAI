@@ -145,3 +145,13 @@ export async function runFreeTurn({ text, from, to }, onEvent) {
   if (lastError) onEvent({ t: "error", message: `Free translator: ${describe(lastError)}` });
   onEvent({ t: "done", timing: { total: Math.round(performance.now() - started) } });
 }
+
+// Translate one piece of text with the free translator (null if it can't).
+export async function freeTranslate(text, from, to) {
+  if (!freeModeSupported() || from.code === to.code) return from.code === to.code ? text : null;
+  try {
+    return await (await getTranslator(from, to)).translate(text);
+  } catch {
+    return null;
+  }
+}

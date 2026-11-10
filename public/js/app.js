@@ -13,7 +13,8 @@ import { createStage } from "./stage.js";
 import { createEars } from "./ears.js";
 import { createVoice } from "./voice.js";
 import { createDetector } from "./detector.js";
-import { checkServer, runTurn, freeModeSupported, prepareFreeMode, runFreeTurn } from "./brain.js";
+import { checkServer, runTurn, freeModeSupported, prepareFreeMode, runFreeTurn, freeTranslate } from "./brain.js";
+import { freeGalbotRequest, wikipediaLookUp, nextSentences } from "./lookup.js";
 import { checkNumbers } from "./numbers.js";
 
 const other = (side) => (side === "A" ? "B" : "A");
@@ -37,6 +38,8 @@ const state = {
   wakeLock: null,
   micOpenAt: 0, // when listening last (re)started; audio before this may be Galbot's voice
   utterance: null, // the utterance being heard right now: { startAt, checked, switched, timer }
+  pitches: { A: [], B: [] }, // each person's recent voice pitch (Hz), to match their voice
+  lastLookUp: null, // free mode: the article Galbot last read from, for "tell me more"
 };
 
 const ears = createEars({
@@ -135,6 +138,8 @@ async function begin() {
   state.turns = [];
   state.instructions = [];
   state.spoken = [];
+  state.pitches = { A: [], B: [] };
+  state.lastLookUp = null;
   state.listenSide = "A";
 
   // Things Chrome only allows right after a click, so do them first:
@@ -455,6 +460,7 @@ async function processTurn(side, text, meta) {
     return;
   }
   const toSide = other(side);
+  if (meta.via === "voice") rememberPitch(side, meta);
   selfLine ??= stage.line(side, "self");
   selfLine.set(text);
   if (detected.redone) selfLine.addMeta("↺ language detected by sound", "latency");
@@ -476,7 +482,8 @@ async function processTurn(side, text, meta) {
       case "route":
         route = ev.route;
         if (route === "translate") {
-          speech = voice.stream({ lang: state.langs[toSide], style: "person" });
+          // Spoken in a voice a bit like the speaker's own (free voice matching).
+          speech = voice.stream({ lang: state.langs[toSide], style: "person", pitchHz: personPitch(side) });
         } else if (route === "galbot") {
           out.remove();
           selfLine.el.classList.add("to-galbot");
@@ -545,7 +552,9 @@ async function processTurn(side, text, meta) {
 
   try {
     if (state.free) {
-      await runFreeTurn({ text, from: state.langs[side], to: state.langs[toSide] }, onEvent);
+      const ask = freeGalbotRequest(text); // "Galbot, look up ___" without a Claude key
+      if (ask) await runFreeLookUp(side, ask.topic, onEvent);
+      else await runFreeTurn({ text, from: state.langs[side], to: state.langs[toSide] }, onEvent);
     } else {
       await runTurn(
         {
@@ -601,6 +610,64 @@ async function processTurn(side, text, meta) {
   state.override = null;
   stage.setListening(state.listenSide, state.langs, detector.status === "ready");
   if (!voice.isSpeaking()) stage.setOrb("idle");
+}
+
+// ---------------------------------------------------------------------------
+// Free-mode look-ups (Wikipedia), answered by Galbot in the asker's language
+// ---------------------------------------------------------------------------
+async function runFreeLookUp(side, topic, onEvent) {
+  const asker = state.langs[side];
+  const otherLang = state.langs[other(side)];
+  onEvent({ t: "route", route: "galbot" });
+  onEvent({ t: "status", state: "searching" });
+  let answer = null;
+  const last = state.lastLookUp;
+  if (!topic && last && last.lang === asker.code && last.next < last.article.sentences.length) {
+    // "Tell me more": keep reading the article we just used.
+    answer = nextSentences(last.article, last.next);
+    last.next = answer.next;
+  } else {
+    // A new topic, or "that" = the last thing someone said.
+    const said = [...state.turns].reverse().find((t) => t.who === "A" || t.who === "B");
+    const query = topic || (said ? (said.who === side ? said.text : said.translation) : "");
+    try {
+      const article = query ? await wikipediaLookUp(query, asker.code) : null;
+      if (article) {
+        answer = nextSentences(article, 0);
+        state.lastLookUp = { article, next: answer.next, lang: asker.code };
+      }
+    } catch (err) {
+      console.warn("look-up failed", err);
+    }
+    if (!answer) {
+      onEvent({ t: "error", message: query ? `Galbot couldn't find "${query}" on Wikipedia.` : "Galbot didn't catch what to look up." });
+      onEvent({ t: "done", timing: {} });
+      return;
+    }
+  }
+  const { article } = state.lastLookUp;
+  onEvent({ t: "galbot_to", side });
+  onEvent({ t: "say", text: answer.text || "…" });
+  const caption = await freeTranslate(answer.text, asker, otherLang);
+  if (caption) onEvent({ t: "caption", text: caption });
+  onEvent({ t: "source", url: article.url, title: article.title });
+  onEvent({ t: "done", timing: {} });
+}
+
+// ---------------------------------------------------------------------------
+// Free voice matching: remember how high or low each person's voice is
+// ---------------------------------------------------------------------------
+function rememberPitch(side, meta) {
+  if (!detector.hasAudio || !meta.firstHeardAt) return;
+  const hz = detector.pitch(utteranceClip(meta.firstHeardAt, meta.committedAt));
+  if (!hz) return;
+  state.pitches[side].push(hz);
+  if (state.pitches[side].length > 6) state.pitches[side].shift();
+}
+
+function personPitch(side) {
+  const list = [...state.pitches[side]].sort((a, b) => a - b);
+  return list.length ? list[Math.floor(list.length / 2)] : null;
 }
 
 function showError(message, line) {

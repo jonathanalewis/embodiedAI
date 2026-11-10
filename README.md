@@ -34,6 +34,7 @@ What you see:
 | Grey line | What *this* person said (so they can check Galbot heard them right). |
 | Black line | What the *other* person said, translated. |
 | Purple line marked GALBOT | Galbot speaking as itself. It also sounds different (another voice, slightly higher). |
+| (sound) Translations in a voice a bit like the speaker's | Free voice matching: Galbot measures how high or low each person's voice is and picks the closest built-in voice (deeper or higher, male- or female-sounding). It is not a clone of their voice. |
 | `English ⇄ Español` under the orb | Automatic language detection is on: anyone can speak at any time. |
 | `↺ language detected by sound` | Chrome was listening for the other language; Galbot noticed from the sound and fixed it. |
 | Chip under the orb | A standing instruction is active, so translations are being adapted. Tap it to remove it. |
@@ -55,7 +56,8 @@ Just say its name. Speech recognition often mishears it ("Gallbot", "call bot");
 
 - **One-time help:** "Galbot, can you say that more simply?", "Galbot, what does that word mean?", "Galbot, explain to her what a deposit is." Galbot answers once, then goes back to translating.
 - **Standing instructions:** "Galbot, I'm talking to a young kid, keep it simple." Galbot confirms in one sentence and a chip appears. "Galbot, go back to normal translation" (or tapping the chip) turns it off.
-- **Look-ups:** any factual question nobody in the room can answer. Galbot searches the web, answers in 2–4 sentences, says when things vary, and shows its sources.
+- **Look-ups:** any factual question nobody in the room can answer, or "Galbot, look that up and give us more detail." Galbot searches the web, answers in 2–4 sentences, says when things vary, and shows its sources.
+  - **In free mode** (no Claude key), look-ups use Wikipedia instead: "Galbot, look up ___" reads a short summary in the asker's language, with a translated caption for the other person and a link. "Galbot, tell me more" continues with the next part of the same article; "Galbot, look up that" searches the last thing someone said. Free mode only understands simple look-up requests (other Galbot requests need the key).
 
 Galbot never gives its own medical, legal, or financial advice, never contradicts a professional in the room, and says when it isn't sure.
 
@@ -91,7 +93,7 @@ Ask Claude Code in this repo to make the change and push. Every push to `main` r
 |---|---|
 | Add a language | One line in `public/js/config.js` → `LANGUAGES` |
 | Make Galbot wait longer/shorter before translating | `TIMING.pauseMs` in `public/js/config.js` (800 = 0.8 s) |
-| Change Galbot's voice speed or pitch | `VOICE` in `public/js/config.js` |
+| Change Galbot's voice speed or pitch, or how strongly voices are matched to speakers | `VOICE` in `public/js/config.js` |
 | Change how Galbot translates or behaves | The two prompts in `lib/prompts.js` |
 | Change which Claude models are used | `FAST_MODEL` / `SMART_MODEL` at the top of `api/turn.js` |
 | Change the look | `public/style.css` (colors are at the top; dark mode right below) |
@@ -109,6 +111,7 @@ public/js/voice.js     speaking    (Chrome voices)              ← swap for voi
 public/js/stage.js     the display (captions, orb, chips)       ← add a sign-language panel later
 public/js/detector.js  automatic language detection (Whisper running in Chrome)
 public/js/brain.js     talks to the server; free-mode fallback
+public/js/lookup.js    free-mode look-ups (Wikipedia)
 public/js/numbers.js   the number check
 public/js/config.js    languages, timing, voice settings
 public/test.html       the test page (not part of the app)
@@ -153,5 +156,5 @@ Galbot never hears itself: the mic is off while Galbot speaks plus 0.4 s afterwa
 ## Later (the code is ready for these, not built yet)
 
 - **Sign language:** an avatar that signs translations and camera-based sign recognition. The page has an empty `#sign-panel` in the center column; recognition would be another kind of `ears`.
-- **Voice cloning (with consent):** replace `createVoice()` in `public/js/voice.js` with an object that has the same methods.
+- **Real voice cloning (with consent, paid, e.g. ElevenLabs ~$6/month):** replace `createVoice()` in `public/js/voice.js` with an object that has the same methods. Today's free version only picks a similar-sounding built-in voice.
 - **Galbot's own mic, speakers and screen:** `ears.js`, `voice.js` and `stage.js` are the only files that touch audio and display.

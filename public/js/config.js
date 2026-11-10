@@ -40,6 +40,9 @@ export const VOICE = {
   personRate: 1.0, // speed of translated speech
   galbotRate: 1.04, // Galbot's own voice: a touch quicker...
   galbotPitch: 1.2, // ...and a little higher, so it sounds different
+  // Voice matching: translations are spoken in a voice a bit like the speaker's.
+  lowVoiceBelowHz: 165, // speakers below this pitch get a lower (male-sounding) voice
+  matchStrength: 0.5, // 0 = don't adjust pitch, 1 = follow the speaker's pitch fully
 };
 
 // How many recent turns to send as context (keeps terms consistent).

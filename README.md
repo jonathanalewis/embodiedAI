@@ -34,7 +34,8 @@ What you see:
 | Grey line | What *this* person said (so they can check Galbot heard them right). |
 | Black line | What the *other* person said, translated. |
 | Purple line marked GALBOT | Galbot speaking as itself. It also sounds different (another voice, slightly higher). |
-| Highlighted language button + label under the orb | Whose language Galbot is listening for right now. |
+| `English ⇄ Español` under the orb | Automatic language detection is on: anyone can speak at any time. |
+| `↺ language detected by sound` | Chrome was listening for the other language; Galbot noticed from the sound and fixed it. |
 | Chip under the orb | A standing instruction is active, so translations are being adapted. Tap it to remove it. |
 | `⚠ numbers differ` | A number in the original didn't come through in the translation. Check it. |
 | `0.9s text · 1.4s voice` | Delay from the speaker's last word to the first translated text and to the first sound. |
@@ -44,7 +45,7 @@ The orb shows Galbot's state: slow breathing = idle, blue glow = listening, puls
 
 ### Handy controls
 
-- **Tap a person's language button** when the same person wants to speak twice in a row. Galbot normally alternates ("ping-pong").
+- **Tap a person's language button** to tell Galbot who is about to speak. Only needed if automatic language detection is off (a note under the orb says so).
 - **Tap the orb** to stop Galbot talking.
 - **Typing box** at the bottom of each side: type instead of talking if the mic misbehaves.
 
@@ -102,10 +103,11 @@ After changing prompts or models, open **/test.html** and press **Run all tests*
 ```
 public/index.html      the page (start slide + conversation screen)
 public/style.css       the look (light + dark mode)
-public/js/app.js       conversation logic: who's talking, ping-pong, echo protection
+public/js/app.js       conversation logic: who's talking, language checks, echo protection
 public/js/ears.js      listening   (Chrome speech recognition)  ← swap for Galbot's own mic later
 public/js/voice.js     speaking    (Chrome voices)              ← swap for voice cloning later
 public/js/stage.js     the display (captions, orb, chips)       ← add a sign-language panel later
+public/js/detector.js  automatic language detection (Whisper running in Chrome)
 public/js/brain.js     talks to the server; free-mode fallback
 public/js/numbers.js   the number check
 public/js/config.js    languages, timing, voice settings
@@ -119,7 +121,12 @@ Every utterance goes to `/api/turn`. The fast model replies with a tag: **[T]** 
 
 ### Listening and the language problem
 
-Chrome's free recognition listens for one language at a time. Galbot uses **ping-pong**: after the left person speaks, it listens for the right person's language, and the other way round. If someone speaks out of turn, the transcript comes out as nonsense. Claude spots that, Galbot switches language and asks that person to repeat. Or tap their language button first. Low recognition confidence is passed to Claude as a hint.
+Chrome's free speech recognition can only listen for one language at a time, so on its own it can't tell who is talking. Galbot adds **automatic language detection** (`public/js/detector.js`): a small speech model (Whisper) that runs inside Chrome, free and private. It keeps the last 30 seconds of microphone audio and decides which of the two chosen languages was spoken:
+
+- About a second into an utterance it checks; if Chrome is listening for the wrong language, Galbot switches on the spot so the live captions are right.
+- At the end of the utterance it checks again. If it was the other language, Galbot writes the whole utterance down again in the right language and translates it the right way.
+
+So the same person can pause and keep talking, or the other person can reply, and Galbot follows. The model (~100 MB) downloads once per computer the first time you press Begin. Until it's ready (and on any computer where it can't run), Galbot falls back to alternating languages and says so under the orb. If Claude is set up, it also spots garbled transcripts and asks the person to repeat.
 
 Galbot never hears itself: the mic is off while Galbot speaks plus 0.4 s afterwards, and anything heard that matches what Galbot just said is ignored. Chrome sometimes stops recognition on its own, so Galbot restarts it automatically, and if the mic is blocked or missing it says so under the orb.
 
@@ -130,7 +137,9 @@ Galbot never hears itself: the mic is off while Galbot speaks plus 0.4 s afterwa
 | Problem | Fix |
 |---|---|
 | "Microphone is blocked" | Click the icon left of the address bar → Microphone → Allow. Press End, then Begin. |
-| Nothing happens when I talk | Is the right language highlighted? Tap the speaker's language button. Check the laptop's input device in System Settings → Sound. |
+| Nothing happens when I talk | Check the laptop's input device in System Settings → Sound. If the note says language detection is off, tap the speaker's language button. |
+| "Automatic language detection is off" | The speech model couldn't download (school or hotel Wi-Fi can block it). Try another network and reload. Galbot still works by alternating languages. |
+| "Free translator: …" error | Press End, then Begin (Chrome only downloads its language packs right after a click). It also retries by itself on the next sentence. |
 | "No ___ voice on this computer" | Captions still work. On a Mac: System Settings → Accessibility → Spoken Content → System Voice → Manage Voices → download that language, then reload. |
 | Free-mode note on the start screen | The API key isn't set (or the site wasn't redeployed after adding it). See setup step 3. |
 | "The Claude API key is not valid" / "out of credit" | Fix the key or add credit in the Anthropic console, then redeploy in Vercel. |

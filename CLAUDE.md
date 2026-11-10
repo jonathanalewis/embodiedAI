@@ -19,6 +19,8 @@ Explain what they need to do in plain steps. Keep code simple and readable.
   Adaptation happens only through standing instructions, which must stay visible as chips.
 - Galbot never gives its own medical/legal/financial advice, never contradicts professionals in the room,
   never makes things up.
+- Language detection (`detector.js`: Whisper via transformers.js from a CDN, runs in the browser) must always
+  fail safe: if it can't load, Galbot falls back to alternating languages.
 - Audio input (`ears.js`), speech output (`voice.js`) and display (`stage.js`) stay behind their small
   interfaces so sign language, voice cloning and Galbot's own hardware can plug in later.
 

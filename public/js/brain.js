@@ -85,41 +85,63 @@ export function freeModeSupported() {
   return typeof self !== "undefined" && "Translator" in self;
 }
 
-// Must be called from a click (Chrome needs a user gesture to download packs).
+// Start both translators. Call this straight from the Begin click: Chrome
+// only lets a page download a language pack right after a click.
+// A failed start is NOT remembered, so the next try starts fresh.
 export async function prepareFreeMode(langA, langB) {
   if (!freeModeSupported()) return { ok: false, reason: "This browser has no built-in translator. Use desktop Chrome." };
-  const problems = [];
-  for (const [from, to] of [[langA, langB], [langB, langA]]) {
-    const key = `${from.code}>${to.code}`;
-    if (translators.has(key)) continue;
-    try {
-      const availability = await self.Translator.availability({ sourceLanguage: from.code, targetLanguage: to.code });
-      if (availability === "unavailable") {
-        problems.push(`${from.name} → ${to.name} isn't available offline`);
-        continue;
-      }
-      translators.set(key, self.Translator.create({ sourceLanguage: from.code, targetLanguage: to.code }));
-    } catch (err) {
-      problems.push(`${from.name} → ${to.name}: ${err.message}`);
-    }
-  }
+  // Ask for both directions at once, while the click still counts.
+  const attempts = [[langA, langB], [langB, langA]].map(([from, to]) =>
+    getTranslator(from, to).then(
+      () => null,
+      (err) => `${from.name} → ${to.name}: ${describe(err)}`
+    )
+  );
+  const problems = (await Promise.all(attempts)).filter(Boolean);
   return { ok: problems.length === 0, reason: problems.join("; ") };
+}
+
+function getTranslator(from, to) {
+  const key = `${from.code}>${to.code}`;
+  if (!translators.has(key)) {
+    const made = self.Translator.create({ sourceLanguage: from.code, targetLanguage: to.code }).catch((err) => {
+      translators.delete(key); // forget the failure so we can retry
+      throw err;
+    });
+    translators.set(key, made);
+  }
+  return translators.get(key);
+}
+
+function describe(err) {
+  if (err?.name === "NotAllowedError") return "Chrome needs a click to download the language pack. Press End, then Begin.";
+  if (err?.name === "NotSupportedError") return "this language pair isn't offered by Chrome's built-in translator.";
+  if (err?.name === "QuotaExceededError") return "the sentence was too long for the free translator.";
+  return `${err?.name || "Error"}: ${err?.message || err}`;
 }
 
 export async function runFreeTurn({ text, from, to }, onEvent) {
   const started = performance.now();
-  const translator = translators.get(`${from.code}>${to.code}`);
-  if (!translator) {
-    onEvent({ t: "error", message: `Free mode can't translate ${from.name} to ${to.name} on this computer.` });
+  if (!freeModeSupported()) {
+    onEvent({ t: "error", message: "This browser has no built-in translator. Use desktop Chrome." });
     onEvent({ t: "done", timing: {} });
     return;
   }
-  try {
-    const result = await (await translator).translate(text);
-    onEvent({ t: "route", route: "translate" });
-    onEvent({ t: "text", text: result });
-  } catch (err) {
-    onEvent({ t: "error", message: `Free translator failed: ${err.message}` });
+  // Try twice: if the translator broke, the second try builds a fresh one.
+  let lastError = null;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const translator = await getTranslator(from, to);
+      const result = await translator.translate(text);
+      onEvent({ t: "route", route: "translate" });
+      onEvent({ t: "text", text: result });
+      lastError = null;
+      break;
+    } catch (err) {
+      lastError = err;
+      translators.delete(`${from.code}>${to.code}`);
+    }
   }
+  if (lastError) onEvent({ t: "error", message: `Free translator: ${describe(lastError)}` });
   onEvent({ t: "done", timing: { total: Math.round(performance.now() - started) } });
 }

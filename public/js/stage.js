@@ -125,9 +125,12 @@ export function createStage() {
     },
 
     // Which side Galbot is currently listening to (null = nobody).
-    setListening(side, langs) {
-      for (const k of ["A", "B"]) sides[k].root.classList.toggle("listening", k === side);
-      orbLabel.textContent = side ? `${side === "A" ? "←" : ""} ${langs[side].native} ${side === "B" ? "→" : ""}`.trim() : "";
+    // auto = the language detector is on, so anyone can speak at any time.
+    setListening(side, langs, auto = false) {
+      for (const k of ["A", "B"]) sides[k].root.classList.toggle("listening", !auto && k === side);
+      if (auto) orbLabel.textContent = `${langs.A.native} ⇄ ${langs.B.native}`;
+      else orbLabel.textContent = side ? `${side === "A" ? "←" : ""} ${langs[side].native} ${side === "B" ? "→" : ""}`.trim() : "";
+      orbLabel.title = auto ? "Automatic: Galbot detects which language is spoken" : "Galbot is listening for this language";
     },
 
     // idle | listening | hearing | translating | thinking | searching | speaking | off

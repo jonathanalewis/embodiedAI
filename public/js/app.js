@@ -2,14 +2,17 @@
 //
 //   ears (listening)  ->  brain (Claude)  ->  stage (screen) + voice (speaker)
 //
-// Listening uses "ping-pong": after Person A speaks, Galbot listens for
-// Person B's language, and vice versa. Tap a side's language button when
-// someone speaks twice in a row.
+// Chrome's recognizer listens for one language at a time, so Galbot guesses
+// (the other person usually answers next) and the language detector
+// (detector.js) checks what was really spoken and corrects the guess, both
+// early in an utterance and at its end. If the detector can't run, tapping a
+// side's language button tells Galbot who is about to speak.
 
 import { LANGUAGES, findLanguage, CONTEXT_TURNS, TIMING } from "./config.js";
 import { createStage } from "./stage.js";
 import { createEars } from "./ears.js";
 import { createVoice } from "./voice.js";
+import { createDetector } from "./detector.js";
 import { checkServer, runTurn, freeModeSupported, prepareFreeMode, runFreeTurn } from "./brain.js";
 import { checkNumbers } from "./numbers.js";
 
@@ -17,6 +20,7 @@ const other = (side) => (side === "A" ? "B" : "A");
 const $ = (sel) => document.querySelector(sel);
 const stage = createStage();
 const voice = createVoice();
+const detector = createDetector({ onStatus: detectorStatus });
 
 const state = {
   active: false, // conversation screen is showing
@@ -31,6 +35,8 @@ const state = {
   override: null, // side someone tapped while Galbot was busy
   spoken: [], // what Galbot said recently (to ignore its own echo)
   wakeLock: null,
+  micOpenAt: 0, // when listening last (re)started; audio before this may be Galbot's voice
+  utterance: null, // the utterance being heard right now: { startAt, checked, switched, timer }
 };
 
 const ears = createEars({
@@ -38,6 +44,8 @@ const ears = createEars({
     if (!state.active) return;
     stage.interim(state.listenSide, text);
     if (state.pendingTurns === 0) stage.setOrb("hearing");
+    if (state.utterance?.switched) waitForEndAfterSwitch(state.utterance); // still talking
+    earlyLanguageCheck();
   },
   onUtterance: (text, meta) => heardUtterance(text, meta),
   onStatus: (status) => earsStatus(status),
@@ -129,14 +137,18 @@ async function begin() {
   state.spoken = [];
   state.listenSide = "A";
 
-  // Wake up speech output while we still have the click (Chrome's autoplay rule).
+  // Things Chrome only allows right after a click, so do them first:
+  // wake up speech output, start the free translators, open the mic for the detector.
   if (voice.supported) speechSynthesis.speak(new SpeechSynthesisUtterance(""));
+  const mightBeFree = !state.server?.hasKey && freeModeSupported();
+  const freePrep = mightBeFree ? prepareFreeMode(state.langs.A, state.langs.B) : null;
+  detector.start(); // loads in the background; Galbot works without it meanwhile
 
-  if (!state.server) state.server = await checkServer();
+  if (!state.server?.reachable) state.server = await checkServer();
   state.free = !state.server.hasKey;
   if (state.free) {
     $("#start-note").textContent = "Preparing the free on-device translator…";
-    const result = await prepareFreeMode(state.langs.A, state.langs.B);
+    const result = await (freePrep ?? prepareFreeMode(state.langs.A, state.langs.B));
     if (!result.ok) {
       $("#start-note").textContent = `Free mode problem: ${result.reason}`;
       if (!freeModeSupported()) return;
@@ -153,6 +165,7 @@ async function begin() {
   $("#start").hidden = true;
   $("#talk").hidden = false;
   state.active = true;
+  detectorStatus(detector.status, "");
   keepScreenAwake();
   listenTo(state.listenSide);
 }
@@ -189,10 +202,104 @@ document.addEventListener("keydown", (e) => {
 // ---------------------------------------------------------------------------
 function listenTo(side) {
   state.listenSide = side;
-  stage.setListening(side, state.langs);
+  stage.setListening(side, state.langs, detector.status === "ready");
   if (!state.active) return;
   if (state.pendingTurns > 0 || voice.isSpeaking()) return; // resumes after the turn
+  if (!state.utterance) state.micOpenAt = performance.now();
   ears.listen(state.langs[side].speech);
+}
+
+// ---------------------------------------------------------------------------
+// Automatic language detection
+// ---------------------------------------------------------------------------
+function detectorStatus(status, detail) {
+  if (!state.active) return;
+  const messages = {
+    loading: `Setting up automatic language detection${detail ? ` (${detail})` : ""}… one-time download.`,
+    failed: `Automatic language detection is off: ${detail}. Galbot will alternate languages; tap a language button when someone speaks twice in a row.`,
+  };
+  stage.notice("detector", messages[status] || "");
+  stage.setListening(state.listenSide, state.langs, status === "ready");
+}
+
+const sideOf = (code) => (state.langs.A.code === code ? "A" : "B");
+const codes = () => [state.langs.A.code, state.langs.B.code];
+
+// Audio of the current utterance, from a little before the first word.
+function utteranceClip(startAt, endAt) {
+  return detector.clip(Math.max(startAt - 1200, state.micOpenAt), endAt);
+}
+
+// About a second into speech: is Chrome listening for the right language?
+// If not, switch now so the live captions are right; the whole utterance is
+// re-transcribed in the right language when it ends.
+function earlyLanguageCheck() {
+  if (detector.status !== "ready" || state.pendingTurns > 0) return;
+  const now = performance.now();
+  state.utterance ??= { startAt: now, checked: false, switched: false, timer: null };
+  const u = state.utterance;
+  if (u.checked || now - u.startAt < 900) return;
+  u.checked = true;
+  const guessed = state.listenSide;
+  detector
+    .whichLanguage(utteranceClip(u.startAt, performance.now()), codes())
+    .then((result) => {
+      if (state.utterance !== u || state.pendingTurns > 0) return;
+      const spoken = sideOf(result.code);
+      if (spoken === guessed || result.confidence < 0.85) return;
+      // Wrong language: move to the other side and listen in that language.
+      u.switched = true;
+      stage.clearInterim(guessed);
+      stage.interim(spoken, "…");
+      state.listenSide = spoken;
+      stage.setListening(spoken, state.langs, true);
+      ears.listen(state.langs[spoken].speech); // keeps the mic on, new language
+      waitForEndAfterSwitch(u);
+    })
+    .catch((err) => console.warn("early language check failed", err));
+}
+
+// After switching mid-utterance, Chrome may not hear anything more (the
+// person may already be done). If so, finish the utterance ourselves.
+function waitForEndAfterSwitch(u) {
+  clearTimeout(u.timer);
+  u.timer = setTimeout(() => {
+    if (state.utterance !== u) return;
+    ears.pause();
+    stage.clearInterim(state.listenSide);
+    state.utterance = null;
+    handleUtterance(state.listenSide, "", { via: "voice", firstHeardAt: u.startAt, committedAt: performance.now() - 2500, switched: true });
+  }, TIMING.pauseMs + 2500);
+}
+
+// At the end of an utterance: which language was it really? Returns the
+// side that spoke and the text (re-transcribed if Chrome had the wrong language).
+async function confirmSpeaker(side, text, meta) {
+  if (detector.status !== "ready" || !meta.firstHeardAt) return { side, text };
+  const clip = utteranceClip(meta.firstHeardAt, meta.committedAt);
+  const seconds = clip.length / 16000;
+  if (seconds < 0.6 && !meta.switched) return { side, text }; // too short to judge
+  try {
+    const started = performance.now();
+    const result = await withTimeout(detector.whichLanguage(clip, codes()), 3000);
+    const spoken = sideOf(result.code);
+    // Short clips are easy to misjudge, so ask for more certainty.
+    const sure = result.confidence >= (seconds < 1.5 ? 0.9 : 0.75);
+    if (spoken === side && !meta.switched) return { side, text, detectMs: performance.now() - started };
+    if (spoken !== side && !sure && !meta.switched) return { side, text, detectMs: performance.now() - started };
+    // Chrome listened for the wrong language (or we switched mid-way):
+    // write down the whole utterance again in the right language.
+    const finalSide = meta.switched ? side : spoken;
+    const redone = await withTimeout(detector.transcribe(clip, state.langs[finalSide].code), 10000);
+    return { side: finalSide, text: redone || text, detectMs: performance.now() - started, redone: true };
+  } catch (err) {
+    console.warn("language check failed; using Chrome's guess", err);
+    return { side, text };
+  }
+}
+
+function withTimeout(promise, ms) {
+  return Promise.race([promise, new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), ms))]);
 }
 
 function earsStatus(status) {
@@ -213,6 +320,7 @@ function earsStatus(status) {
 }
 
 function heardUtterance(text, meta) {
+  const u = forgetUtterance();
   if (!state.active) return;
   const side = state.listenSide;
   const selfLine = stage.takeInterim(side);
@@ -221,7 +329,22 @@ function heardUtterance(text, meta) {
     listenTo(side);
     return;
   }
-  handleUtterance(side, text, { via: "voice", ...meta, endedAt: meta.spokeAt, selfLine });
+  handleUtterance(side, text, {
+    via: "voice",
+    ...meta,
+    firstHeardAt: u?.startAt ?? meta.firstHeardAt, // the real start, even if we switched language mid-way
+    switched: Boolean(u?.switched),
+    endedAt: meta.spokeAt,
+    selfLine,
+  });
+}
+
+// Stop tracking the utterance in progress (returns what we knew about it).
+function forgetUtterance() {
+  const u = state.utterance;
+  if (u) clearTimeout(u.timer);
+  state.utterance = null;
+  return u;
 }
 
 // Did the mic just pick up Galbot's own voice?
@@ -263,11 +386,13 @@ function setupControls() {
       if (!text) return;
       input.value = "";
       stage.clearInterim(state.listenSide);
+      forgetUtterance();
       handleUtterance(side, text, { via: "typed" });
     });
     // "This person is about to speak": listen for their language now.
     root.querySelector(".side-lang").addEventListener("click", () => {
       stage.clearInterim(state.listenSide);
+      forgetUtterance();
       if (state.pendingTurns > 0) state.override = side; // applies when the turn ends
       else ears.pause();
       listenTo(side);
@@ -312,9 +437,27 @@ async function resumeAfterTurn() {
 
 async function processTurn(side, text, meta) {
   const t0 = meta.endedAt ?? performance.now();
+  let selfLine = meta.selfLine ?? null;
+  let detected = {};
+  if (meta.via === "voice") {
+    // Check which language was really spoken, and fix the guess if needed.
+    stage.setOrb("translating");
+    detected = await confirmSpeaker(side, text, meta);
+    if (detected.side !== side) {
+      selfLine?.remove();
+      selfLine = null;
+    }
+    side = detected.side;
+    text = detected.text;
+  }
+  if (!text.trim()) {
+    selfLine?.remove();
+    return;
+  }
   const toSide = other(side);
-  const selfLine = meta.selfLine ?? stage.line(side, "self");
+  selfLine ??= stage.line(side, "self");
   selfLine.set(text);
+  if (detected.redone) selfLine.addMeta("↺ language detected by sound", "latency");
   const out = stage.line(toSide, "other");
   out.pending();
   stage.setOrb("translating");
@@ -443,7 +586,10 @@ async function processTurn(side, text, meta) {
   if (target && firstTextAt) {
     const caption = (firstTextAt - t0) / 1000;
     const item = target.addMeta(`${caption.toFixed(1)}s text`, "latency");
-    item.title = `From the end of speech to first words on screen. Server timing (ms): ${JSON.stringify(serverTiming)}`;
+    item.title =
+      `From the end of speech to first words on screen.` +
+      (detected.detectMs ? ` Language check: ${Math.round(detected.detectMs)} ms.` : "") +
+      ` Server timing (ms): ${JSON.stringify(serverTiming)}`;
     speech?.started.then((at) => {
       if (at) item.textContent = `${caption.toFixed(1)}s text · ${((at - t0) / 1000).toFixed(1)}s voice`;
     });
@@ -453,7 +599,7 @@ async function processTurn(side, text, meta) {
   if (galbot?.say.text.trim()) state.turns.push({ who: "G", to: galbot.to, text: galbot.say.text.trim() });
   state.listenSide = state.override ?? nextSide;
   state.override = null;
-  stage.setListening(state.listenSide, state.langs);
+  stage.setListening(state.listenSide, state.langs, detector.status === "ready");
   if (!voice.isSpeaking()) stage.setOrb("idle");
 }
 

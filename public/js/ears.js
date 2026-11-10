@@ -30,6 +30,7 @@ export function createEars({ onInterim, onUtterance, onStatus }) {
   let locale = "en-US";
   let heard = ""; // words of the current utterance so far
   let lastChange = 0; // when those words last changed
+  let firstHeardAt = 0; // when the first word of this utterance showed up
   let confidences = [];
   let commitTimer = null;
   let restartTimer = null;
@@ -112,6 +113,7 @@ export function createEars({ onInterim, onUtterance, onStatus }) {
     text = text.replace(/\s+/g, " ").trim();
     confidences = confs;
     if (text && text !== heard) {
+      if (!heard) firstHeardAt = performance.now();
       heard = text;
       lastChange = performance.now();
       onStatus("hearing");
@@ -136,7 +138,7 @@ export function createEars({ onInterim, onUtterance, onStatus }) {
     wanted = false;
     stop();
     onStatus("paused");
-    onUtterance(text, { confidence, spokeAt, committedAt: performance.now() });
+    onUtterance(text, { confidence, spokeAt, firstHeardAt, committedAt: performance.now(), lang: locale });
   }
 
   function gotError(error) {

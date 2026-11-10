@@ -23,6 +23,7 @@ export function createVoice() {
   const alive = new Set(); // keep utterances referenced (Chrome bug: GC drops onend)
   let idleWaiters = [];
   let activityListener = () => {};
+  let generation = 0; // bumps on stopAll(); older streams go quiet
   const voicesListeners = [];
 
   function loadVoices() {
@@ -134,6 +135,7 @@ export function createVoice() {
     const started = new Promise((r) => (resolveStarted = r));
     let firstStart = null;
     let spokeAny = false;
+    const myGeneration = generation; // if stopAll() runs later, this stream goes quiet
     const onStart = (t) => {
       if (firstStart === null) {
         firstStart = t;
@@ -154,14 +156,14 @@ export function createVoice() {
     return {
       started,
       push(text) {
-        if (ended) return;
+        if (ended || myGeneration !== generation) return; // stopped by the user
         buf += text;
         flush(false);
       },
       end() {
         if (ended) return;
         ended = true;
-        flush(true);
+        if (myGeneration === generation) flush(true);
         openStreams = Math.max(0, openStreams - 1);
         if (!spokeAny) resolveStarted(null); // nothing to say (or no voice)
         setActive();
@@ -177,10 +179,12 @@ export function createVoice() {
     onVoicesChanged: (fn) => voicesListeners.push(fn),
     onActivity: (fn) => (activityListener = fn),
     isSpeaking: () => pending > 0,
+    ready: () => voices.length > 0, // Chrome loads its voice list a moment after the page
     // Resolves once nothing is playing and no stream is still open.
     whenIdle: () =>
       pending === 0 && openStreams === 0 ? Promise.resolve() : new Promise((r) => idleWaiters.push(r)),
     stopAll() {
+      generation++;
       if (supported) synth.cancel();
       alive.clear();
       pending = 0;

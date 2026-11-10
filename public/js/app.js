@@ -30,6 +30,7 @@ const state = {
   pendingTurns: 0,
   override: null, // side someone tapped while Galbot was busy
   spoken: [], // what Galbot said recently (to ignore its own echo)
+  wakeLock: null,
 };
 
 const ears = createEars({
@@ -93,7 +94,7 @@ function updateStartWarnings() {
   }
   for (const code of [$("#lang-A").value, $("#lang-B").value]) {
     const lang = findLanguage(code);
-    if (voice.supported && !voice.hasVoiceFor(lang)) {
+    if (voice.supported && voice.ready() && !voice.hasVoiceFor(lang)) {
       notes.push(`This computer has no ${lang.name} voice, so ${lang.name} will be captions only.`);
     }
   }
@@ -152,17 +153,36 @@ async function begin() {
   $("#start").hidden = true;
   $("#talk").hidden = false;
   state.active = true;
+  keepScreenAwake();
   listenTo(state.listenSide);
 }
 
 function end() {
   state.active = false;
+  state.wakeLock?.release().catch(() => {});
   ears.pause();
   voice.stopAll();
   $("#talk").hidden = true;
   $("#start").hidden = false;
   updateStartWarnings();
 }
+
+// Stop the laptop dimming or sleeping mid-conversation.
+async function keepScreenAwake() {
+  try {
+    state.wakeLock = await navigator.wakeLock?.request("screen");
+  } catch {}
+}
+document.addEventListener("visibilitychange", () => {
+  if (state.active && document.visibilityState === "visible") keepScreenAwake();
+});
+
+// Press F (outside a text box) for full screen, like presenting a slide.
+document.addEventListener("keydown", (e) => {
+  if (e.key.toLowerCase() !== "f" || e.target.closest("input, select, textarea")) return;
+  if (document.fullscreenElement) document.exitFullscreen();
+  else document.documentElement.requestFullscreen?.().catch(() => {});
+});
 
 // ---------------------------------------------------------------------------
 // Listening
@@ -282,8 +302,9 @@ function handleUtterance(side, text, meta) {
 }
 
 async function resumeAfterTurn() {
-  await voice.whenIdle();
-  await new Promise((r) => setTimeout(r, TIMING.echoTailMs)); // let the room go quiet
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  await Promise.race([voice.whenIdle(), sleep(60000)]); // never wait forever
+  await sleep(TIMING.echoTailMs); // let the room go quiet
   if (state.pendingTurns > 0 || !state.active) return;
   stage.setOrb("listening");
   listenTo(state.listenSide);
@@ -379,23 +400,26 @@ async function processTurn(side, text, meta) {
     }
   };
 
-  if (state.free) {
-    await runFreeTurn({ text, from: state.langs[side], to: state.langs[toSide] }, onEvent);
-  } else {
-    await runTurn(
-      {
-        text,
-        speaker: side,
-        langs: { A: state.langs.A.name, B: state.langs.B.name },
-        history: state.turns.slice(-CONTEXT_TURNS),
-        instructions: state.instructions.map((i) => ({ id: i.id, text: i.text })),
-        via: meta.via,
-        confidence: meta.confidence,
-      },
-      onEvent
-    );
+  try {
+    if (state.free) {
+      await runFreeTurn({ text, from: state.langs[side], to: state.langs[toSide] }, onEvent);
+    } else {
+      await runTurn(
+        {
+          text,
+          speaker: side,
+          langs: { A: state.langs.A.name, B: state.langs.B.name },
+          history: state.turns.slice(-CONTEXT_TURNS),
+          instructions: state.instructions.map((i) => ({ id: i.id, text: i.text })),
+          via: meta.via,
+          confidence: meta.confidence,
+        },
+        onEvent
+      );
+    }
+  } finally {
+    speech?.end(); // always close the voice stream, or listening would never resume
   }
-  speech?.end();
 
   // Remember what Galbot said aloud, so its own echo is ignored.
   rememberSpoken(turn.translation);

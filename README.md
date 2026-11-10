@@ -1,12 +1,148 @@
 # embodiedAI
 Stanford University's ME310 project on embodied AI for human to human connection
 
-## Galbot Interpreter
+---
 
-A hands-free robot interpreter for two people who don't share a language.
-Open the live site in Chrome, pick the two languages, press **Begin**.
+# Galbot Interpreter
 
-The app lives in `public/` (the web page), `api/` (the one server function)
-and `lib/` (Claude prompts). Every push to `main` redeploys the live site on Vercel.
+Galbot stands between two people who don't share a language. They just talk;
+Galbot translates out loud and shows live captions on each person's side of
+the screen. Anyone can talk to Galbot by name ("Galbot, say that more simply",
+"Galbot, keep it formal from now on", "Galbot, what time does the post office
+close?").
 
-(Full guide for teammates coming in Step 4.)
+**Live site:** the Vercel URL for this repo (Vercel dashboard → the project → "Domains").
+**Test page:** the same URL + `/test.html`.
+
+Use **Google Chrome on a laptop or desktop**. Safari and Firefox don't support the free speech recognition Galbot uses.
+
+---
+
+## Running a demo
+
+1. Open the live site in Chrome. Put the laptop between the two people, facing both.
+2. Pick the **left** person's language and the **right** person's language. Galbot remembers them for next time.
+3. Press **Begin**. The first time, Chrome asks for the microphone: click **Allow**.
+4. Talk. After a short pause (about 0.8 s), Galbot translates out loud.
+5. Optional: press **F** for full screen. Press **End** to go back to the start.
+
+What you see:
+
+| On screen | Meaning |
+|---|---|
+| Big line at the bottom of a side | The newest thing said, in that person's language. Older lines shrink and fade. |
+| Grey line | What *this* person said (so they can check Galbot heard them right). |
+| Black line | What the *other* person said, translated. |
+| Purple line marked GALBOT | Galbot speaking as itself. It also sounds different (another voice, slightly higher). |
+| Highlighted language button + label under the orb | Whose language Galbot is listening for right now. |
+| Chip under the orb | A standing instruction is active, so translations are being adapted. Tap it to remove it. |
+| `⚠ numbers differ` | A number in the original didn't come through in the translation. Check it. |
+| `0.9s text · 1.4s voice` | Delay from the speaker's last word to the first translated text and to the first sound. |
+| Small `↗ site.com` pills | Where a look-up answer came from. Click to open. |
+
+The orb shows Galbot's state: slow breathing = idle, blue glow = listening, pulsing = hearing someone, spinning = translating or thinking, ripples = speaking, grey = microphone problem.
+
+### Handy controls
+
+- **Tap a person's language button** when the same person wants to speak twice in a row. Galbot normally alternates ("ping-pong").
+- **Tap the orb** to stop Galbot talking.
+- **Typing box** at the bottom of each side: type instead of talking if the mic misbehaves.
+
+### Talking to Galbot
+
+Just say its name. Speech recognition often mishears it ("Gallbot", "call bot"); that's fine, because Claude judges by sound and context.
+
+- **One-time help:** "Galbot, can you say that more simply?", "Galbot, what does that word mean?", "Galbot, explain to her what a deposit is." Galbot answers once, then goes back to translating.
+- **Standing instructions:** "Galbot, I'm talking to a young kid, keep it simple." Galbot confirms in one sentence and a chip appears. "Galbot, go back to normal translation" (or tapping the chip) turns it off.
+- **Look-ups:** any factual question nobody in the room can answer. Galbot searches the web, answers in 2–4 sentences, says when things vary, and shows its sources.
+
+Galbot never gives its own medical, legal, or financial advice, never contradicts a professional in the room, and says when it isn't sure.
+
+Without a standing instruction, Galbot translates like a professional interpreter: complete and faithful, first person ("I", not "he says"), questions translated, never answered, and numbers, dates, and names exactly as said.
+
+---
+
+## One-time setup (already done once; repeat only for a new copy)
+
+Nothing to install. GitHub holds the code, Vercel (free) runs the website, and Claude does the thinking.
+
+1. **GitHub:** the repo must be **public**. Vercel's free plan won't deploy a private repo when someone other than the owner made the commit. The API key is never in the code, so public is safe.
+2. **Vercel:** go to [vercel.com/new](https://vercel.com/new) → "Continue with GitHub" → **Import** this repo → leave all settings as they are → **Deploy**.
+3. **Claude API key** (the only paid part):
+   1. Go to [console.anthropic.com](https://console.anthropic.com), sign in, open **Billing** and add a small amount of credit.
+   2. Open **API Keys** → **Create Key** → copy it (starts with `sk-ant-`). **Never paste it into the code or a chat.**
+   3. In Vercel: open the project → **Settings** → **Environment Variables** → Key `ANTHROPIC_API_KEY`, Value: paste the key → **Save**.
+   4. Go to **Deployments** → click **⋯** on the newest one → **Redeploy**. A new key only takes effect after a redeploy.
+
+**No key?** Galbot still works in **free mode**: basic translation using Chrome's built-in on-device translator (desktop Chrome 138 or newer). Talking to Galbot, look-ups, and wrong-language detection need the key.
+
+### Cost
+
+Translation uses Claude's fastest model (Haiku): roughly 1/50 of a cent per sentence, so an hour of conversation costs a few cents. Talking to Galbot uses a stronger model (Sonnet): under 1 cent for a normal request, about 2–5 cents for a look-up (web search included). Everything else is free: Vercel's free plan, Chrome's speech recognition and voices.
+
+---
+
+## Making changes (with Claude Code; no terminal needed)
+
+Ask Claude Code in this repo to make the change and push. Every push to `main` redeploys the live site in about 30 seconds. Refresh the page to see it.
+
+| I want to… | Where |
+|---|---|
+| Add a language | One line in `public/js/config.js` → `LANGUAGES` |
+| Make Galbot wait longer/shorter before translating | `TIMING.pauseMs` in `public/js/config.js` (800 = 0.8 s) |
+| Change Galbot's voice speed or pitch | `VOICE` in `public/js/config.js` |
+| Change how Galbot translates or behaves | The two prompts in `lib/prompts.js` |
+| Change which Claude models are used | `FAST_MODEL` / `SMART_MODEL` at the top of `api/turn.js` |
+| Change the look | `public/style.css` (colors are at the top; dark mode right below) |
+
+After changing prompts or models, open **/test.html** and press **Run all tests**.
+
+### How it works (map of the files)
+
+```
+public/index.html      the page (start slide + conversation screen)
+public/style.css       the look (light + dark mode)
+public/js/app.js       conversation logic: who's talking, ping-pong, echo protection
+public/js/ears.js      listening   (Chrome speech recognition)  ← swap for Galbot's own mic later
+public/js/voice.js     speaking    (Chrome voices)              ← swap for voice cloning later
+public/js/stage.js     the display (captions, orb, chips)       ← add a sign-language panel later
+public/js/brain.js     talks to the server; free-mode fallback
+public/js/numbers.js   the number check
+public/js/config.js    languages, timing, voice settings
+public/test.html       the test page (not part of the app)
+api/turn.js            the only server code: calls Claude and streams the answer back
+lib/prompts.js         what Claude is told
+lib/galbot-parser.js   splits Galbot's replies into spoken part / caption / chips
+```
+
+Every utterance goes to `/api/turn`. The fast model replies with a tag: **[T]** translate (it streams the translation right away), **[G]** addressed to Galbot (the server then asks the stronger model, with web search), **[R]** garbled, probably the wrong language (Galbot asks the person, in their language, to repeat), or **[N]** just noise. The browser speaks each sentence as soon as it's complete instead of waiting for the whole answer.
+
+### Listening and the language problem
+
+Chrome's free recognition listens for one language at a time. Galbot uses **ping-pong**: after the left person speaks, it listens for the right person's language, and the other way round. If someone speaks out of turn, the transcript comes out as nonsense. Claude spots that, Galbot switches language and asks that person to repeat. Or tap their language button first. Low recognition confidence is passed to Claude as a hint.
+
+Galbot never hears itself: the mic is off while Galbot speaks plus 0.4 s afterwards, and anything heard that matches what Galbot just said is ignored. Chrome sometimes stops recognition on its own, so Galbot restarts it automatically, and if the mic is blocked or missing it says so under the orb.
+
+---
+
+## Troubleshooting
+
+| Problem | Fix |
+|---|---|
+| "Microphone is blocked" | Click the icon left of the address bar → Microphone → Allow. Press End, then Begin. |
+| Nothing happens when I talk | Is the right language highlighted? Tap the speaker's language button. Check the laptop's input device in System Settings → Sound. |
+| "No ___ voice on this computer" | Captions still work. On a Mac: System Settings → Accessibility → Spoken Content → System Voice → Manage Voices → download that language, then reload. |
+| Free-mode note on the start screen | The API key isn't set (or the site wasn't redeployed after adding it). See setup step 3. |
+| "The Claude API key is not valid" / "out of credit" | Fix the key or add credit in the Anthropic console, then redeploy in Vercel. |
+| Translations are slow | Check the readout under each line. The first request after a while can be slower (the server wakes up). Normal is about 1 s to text. |
+| Vercel says "deployment blocked" | The repo was made private. Make it public again (GitHub → Settings → bottom of the page). |
+
+**Honest limits:** voices vary by computer (some languages, e.g. Tagalog, often have no voice on Macs, so they're captions only). The number check compares digits, so numbers spoken as words are not checked. Speech recognition needs an internet connection.
+
+---
+
+## Later (the code is ready for these, not built yet)
+
+- **Sign language:** an avatar that signs translations and camera-based sign recognition. The page has an empty `#sign-panel` in the center column; recognition would be another kind of `ears`.
+- **Voice cloning (with consent):** replace `createVoice()` in `public/js/voice.js` with an object that has the same methods.
+- **Galbot's own mic, speakers and screen:** `ears.js`, `voice.js` and `stage.js` are the only files that touch audio and display.

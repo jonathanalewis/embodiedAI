@@ -218,6 +218,7 @@ button, input, select { font: inherit; color: inherit; }
   animation: fade-up 0.45s var(--ease) both;
   overflow-wrap: anywhere;
 }
+.line-text { transition: font-size 0.45s var(--ease), color 0.45s var(--ease); }
 .line:last-child, .line.interim { opacity: 1; }
 .line:last-child .line-text { font-size: clamp(28px, 3.3vw, 54px); font-weight: 600; letter-spacing: -0.025em; line-height: 1.16; }
 

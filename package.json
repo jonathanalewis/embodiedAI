@@ -1,0 +1,10 @@
+{
+  "name": "galbot",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Galbot: a hands-free robot interpreter for two people who don't share a language.",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^1.8.0"
+  }
+}

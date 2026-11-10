@@ -1,4 +1,4 @@
-// /api/turn : the only server code in Galbot.
+// /api/turn : the only server code in the Galbot interpreter app.
 //
 // The browser sends one utterance (plus recent context). This function asks
 // Claude what to do with it and streams the answer back as it is written,
@@ -22,7 +22,7 @@ import { GalbotParser } from "../lib/galbot-parser.js";
 
 // Models (check https://platform.claude.com/docs/en/about-claude/models).
 const FAST_MODEL = "claude-haiku-5-5"; // every utterance: route + translate
-const SMART_MODEL = "claude-sonnet-5-5"; // only when someone talks to Galbot
+const SMART_MODEL = "claude-sonnet-5-5"; // only when someone talks to the interpreter by name
 
 // Claude's built-in web search, used for look-ups.
 const WEB_SEARCH = { type: "web_search_20260209", name: "web_search", max_uses: 3 };
@@ -112,7 +112,7 @@ async function interpret(turn, send, timing, started) {
   if (route === "galbot" || route === "noise") return route;
   const final = await stream.finalMessage();
   if (final.stop_reason === "refusal") {
-    send({ t: "error", message: "Galbot could not translate that." });
+    send({ t: "error", message: "Sorry, that one could not be translated." });
   }
   if (!route) {
     // Ended before any tag arrived (very short or empty output).
@@ -172,7 +172,7 @@ async function askGalbot(turn, send, timing, started) {
     const final = await stream.finalMessage();
     timing.smartModel = usageSummary(final);
     if (final.stop_reason === "refusal") {
-      send({ t: "error", message: "Galbot can't help with that request." });
+      send({ t: "error", message: "Sorry, I can't help with that request." });
       break;
     }
     if (final.stop_reason !== "pause_turn") break;

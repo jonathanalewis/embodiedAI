@@ -37,34 +37,35 @@ const CASES = [
 
   // --- Talking to Galbot (including misheard names) -------------------------
   {
-    group: "Galbot", title: "Say that more simply", langs: ["en", "es"], text: "Galbot, can you say that more simply?",
+    group: "Click", title: "Say that more simply", langs: ["en", "es"], text: "Hey Click, can you say that more simply?",
     history: [{ who: "B", text: "Tiene que presentar el formulario antes de la fecha límite o se aplicará un recargo por demora.", translation: "You have to submit the form before the deadline or a late surcharge will be applied." }],
     expect: { route: "galbot" },
   },
-  { group: "Galbot", title: "Misheard as \"Gallbot\"", langs: ["en", "es"], text: "Gallbot what does deductible mean", expect: { route: "galbot" } },
+  { group: "Click", title: "Misheard as \"hey quick\"", langs: ["en", "es"], text: "hey quick what does deductible mean", expect: { route: "galbot" } },
   {
-    group: "Galbot", title: "Misheard as \"call bot\"", langs: ["en", "es"], text: "call bot could you repeat what she just said",
+    group: "Click", title: "Misheard as \"OK clique\"", langs: ["en", "es"], text: "OK clique could you repeat what she just said",
     history: [{ who: "B", text: "La próxima cita es el jueves a las tres.", translation: "The next appointment is on Thursday at three." }],
     expect: { route: "galbot" },
   },
-  { group: "Galbot", title: "Misheard in Spanish (\"Galbo\")", langs: ["es", "en"], text: "Galbo, ¿qué significa esa palabra?", history: [{ who: "A", text: "It's on the mezzanine.", translation: "Está en el entrepiso." }], expect: { route: "galbot" } },
-  { group: "Galbot", title: "Explain to the other person", langs: ["en", "es"], text: "Galbot, please explain to her what a co-signer is.", expect: { route: "galbot" } },
-  { group: "Galbot", title: "Mentioned, not addressed", langs: ["en", "es"], text: "This is Galbot, it's going to translate for both of us.", expect: { route: "translate" } },
+  { group: "Click", title: "Heard by the Spanish recognizer (\"clic\")", langs: ["es", "en"], text: "Oye clic, ¿qué significa esa palabra?", history: [{ who: "A", text: "It's on the mezzanine.", translation: "Está en el entrepiso." }], expect: { route: "galbot" } },
+  { group: "Click", title: "Explain to the other person (speaks to them)", langs: ["en", "es"], text: "Hey Click, can you tell her what a co-signer is?", expect: { route: "galbot", to: "B" } },
+  { group: "Click", title: "Question for Lumi (answers the asker)", langs: ["en", "es"], text: "Hey Click, what is a co-signer?", expect: { route: "galbot", to: "A" } },
+  { group: "Click", title: "\"click\" as an ordinary word", langs: ["en", "es"], text: "Just click the blue button and it will translate for both of us.", expect: { route: "translate" } },
 
   // --- Standing instructions (run in order: on, applied, off) ---------------
-  { group: "Instructions", title: "Turn on: keep it simple", sequence: "kid", langs: ["en", "es"], text: "Galbot, I'm talking with a young kid, please keep everything really simple.", expect: { route: "galbot", instruction: "set" } },
+  { group: "Instructions", title: "Turn on: keep it simple", sequence: "kid", langs: ["en", "es"], text: "Hey Click, I'm talking with a young kid, please keep everything really simple.", expect: { route: "galbot", instruction: "set" } },
   { group: "Instructions", title: "Applied to the next translation", sequence: "kid", langs: ["en", "es"], text: "We need to wait here until your mom comes back from the store, and then we can get ice cream.", expect: { route: "translate" }, review: true },
-  { group: "Instructions", title: "Turn off: back to normal", sequence: "kid", langs: ["en", "es"], text: "Galbot, go back to normal translation.", expect: { route: "galbot", instruction: "clear" } },
-  { group: "Instructions", title: "Turn on: more formal", langs: ["en", "ja"], text: "Galbot, please be more formal from now on.", expect: { route: "galbot", instruction: "set" } },
+  { group: "Instructions", title: "Turn off: back to normal", sequence: "kid", langs: ["en", "es"], text: "Click, go back to normal translation.", expect: { route: "galbot", instruction: "clear" } },
+  { group: "Instructions", title: "Turn on: more formal", langs: ["en", "ja"], text: "Hey Click, please be more formal from now on.", expect: { route: "galbot", instruction: "set" } },
 
   // --- Look-ups -------------------------------------------------------------
-  { group: "Look-up", title: "Population of a city", langs: ["en", "es"], text: "Galbot, roughly how many people live in Lisbon?", expect: { route: "galbot", sources: true } },
+  { group: "Look-up", title: "Population of a city", langs: ["en", "es"], text: "Hey Click, roughly how many people live in Lisbon?", expect: { route: "galbot", sources: true } },
   {
-    group: "Look-up", title: "Add more detail about what was said", langs: ["en", "es"], text: "Galbot, can you look that up and give us a bit more detail?",
+    group: "Look-up", title: "Add more detail about what was said", langs: ["en", "es"], text: "Hey Click, can you look that up and give us a bit more detail?",
     history: [{ who: "B", text: "Mi abuela vino de Oaxaca, donde se celebra la Guelaguetza.", translation: "My grandmother came from Oaxaca, where the Guelaguetza is celebrated." }],
     expect: { route: "galbot", sources: true },
   },
-  { group: "Look-up", title: "Museum hours (asked in Spanish)", langs: ["es", "en"], text: "Galbot, ¿a qué hora cierra normalmente el Museo del Prado?", expect: { route: "galbot", sources: true } },
+  { group: "Look-up", title: "Museum hours (asked in Spanish)", langs: ["es", "en"], text: "Oye Click, ¿a qué hora cierra normalmente el Museo del Prado?", expect: { route: "galbot", sources: true } },
 
   // --- Wrong language / noise ------------------------------------------------
   { group: "Recovery", title: "Spanish speech heard by the English recognizer", langs: ["en", "es"], via: "voice", confidence: 0.41, text: "key or a sir war in the poor fever sea are pro hound toe", expect: { route: "repeat" } },
@@ -135,6 +136,10 @@ async function runCase(c, sequenceState) {
   if (c.expect.instruction === "clear")
     check(instructionEvents.some((e) => e.action === "clear" || e.action === "clear_all"), "Standing instruction removed");
   if (c.expect.sources) check(sources.length > 0, `Shows a source (${sources.length})`);
+  if (c.expect.to) {
+    const to = events.find((e) => e.t === "galbot_to")?.side;
+    check(to === c.expect.to, `Speaks to ${c.expect.to === "A" ? "the asker" : "the other person"} (got ${to === "A" ? "asker" : to === "B" ? "other person" : "none"})`);
+  }
   if (c.expect.route === "galbot" || c.expect.route === "translate" || c.expect.route === "repeat") check(output.length > 0, "Produced text");
 
   const failed = checks.some((x) => !x.ok);
@@ -154,7 +159,7 @@ function render(c, r, el) {
       <dt>Said</dt><dd lang="${c.langs[0]}">${esc(c.text)}</dd>
       ${c.history?.length ? `<dt>Context</dt><dd>${esc(c.history.map((h) => h.text).join(" / "))}</dd>` : ""}
       ${r?.instructions?.length ? `<dt>Active</dt><dd>${esc(r.instructions.map((i) => i.text).join(" / "))}</dd>` : ""}
-      ${r ? `<dt>Galbot</dt><dd>${esc(r.output) || "<i>(nothing)</i>"}</dd>` : ""}
+      ${r ? `<dt>Click</dt><dd>${esc(r.output) || "<i>(nothing)</i>"}</dd>` : ""}
       ${r?.caption ? `<dt>Caption</dt><dd>${esc(r.caption)}</dd>` : ""}
       ${r?.sources?.length ? `<dt>Sources</dt><dd>${r.sources.map((s) => `<a href="${esc(s.url)}" target="_blank" rel="noopener">${esc(s.title)}</a>`).join(" · ")}</dd>` : ""}
     </dl>

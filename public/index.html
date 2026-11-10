@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
-  <title>Galbot</title>
+  <title>Click</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3CradialGradient id='g' cx='35%25' cy='30%25'%3E%3Cstop offset='0' stop-color='%23b7b5ff'/%3E%3Cstop offset='1' stop-color='%235e5ce6'/%3E%3C/radialGradient%3E%3C/defs%3E%3Ccircle cx='32' cy='32' r='28' fill='url(%23g)'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="style.css">
 </head>
@@ -13,7 +13,7 @@
   <!-- Title slide: the only setup is picking two languages -->
   <main id="start" class="start">
     <div class="start-orb" aria-hidden="true"></div>
-    <h1 class="wordmark">Galbot</h1>
+    <h1 class="wordmark" id="wordmark">Click</h1>
     <p class="tagline">Two people. Two languages. One conversation.</p>
 
     <div class="pickers">
@@ -32,7 +32,7 @@
     <p id="start-note" class="start-note" role="status"></p>
   </main>
 
-  <!-- Conversation: one side per person, Galbot in the middle -->
+  <!-- Conversation: one side per person, the interpreter (orb) in the middle -->
   <main id="talk" class="talk" hidden>
     <section id="side-A" class="side" data-side="A">
       <header class="side-head">
@@ -46,7 +46,7 @@
     </section>
 
     <section class="center">
-      <button id="orb" class="orb" type="button" data-state="idle" aria-label="Galbot">
+      <button id="orb" class="orb" type="button" data-state="idle" aria-label="Interpreter">
         <span class="orb-glow"></span>
         <span class="orb-core"></span>
         <span class="orb-ring"></span>

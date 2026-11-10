@@ -1,5 +1,16 @@
 // Everything you might want to tweak lives here.
 
+// The interpreter's name. People say it to talk to it directly ("Hey Click, ...").
+// `name` is used everywhere, including the server's instructions to Claude.
+// soundsLike: how speech recognition tends to write the name (used in free mode).
+// needsGreeting: the name is also an everyday word, so in free mode only
+// "Hey Click / OK Click ..." counts (with a Claude key, Claude judges context).
+export const ASSISTANT = {
+  name: "Click",
+  soundsLike: ["click", "clic", "klick", "klik", "clik", "clique", "cliq", "quick", "클릭", "クリック", "克里克", "点击", "كليك", "клик", "клік", "क्लिक"],
+  needsGreeting: true,
+};
+
 // ---------------------------------------------------------------------------
 // LANGUAGES: to add a language, add ONE line.
 //   code   : short id (also used by Chrome's free on-device translator)
@@ -32,13 +43,16 @@ export const LANGUAGES = [
 export const TIMING = {
   pauseMs: 800, // silence that ends an utterance
   finalGraceMs: 250, // wait this long after Chrome itself says "phrase finished"
-  echoTailMs: 400, // keep the mic off this long after Galbot stops talking
+  echoTailMs: 400, // after the interpreter stops talking, wait this long before switching languages
   restartDelayMs: 150, // pause before restarting recognition after it stops
+  earlyCheckMs: 700, // how far into speech the first language check happens
+  addOnWindowMs: 4000, // same person speaks again this soon after the translation = adding on
+  bargeIn: true, // talking over a translation makes the interpreter stop and listen
 };
 
 export const VOICE = {
   personRate: 1.0, // speed of translated speech
-  galbotRate: 1.04, // Galbot's own voice: a touch quicker...
+  galbotRate: 1.04, // the interpreter's own voice: a touch quicker...
   galbotPitch: 1.2, // ...and a little higher, so it sounds different
   // Voice matching: translations are spoken in a voice a bit like the speaker's.
   lowVoiceBelowHz: 165, // speakers below this pitch get a lower (male-sounding) voice

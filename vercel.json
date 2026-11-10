@@ -1,4 +1,7 @@
 {
   "framework": null,
-  "outputDirectory": "public"
+  "outputDirectory": "public",
+  "functions": {
+    "api/turn.js": { "includeFiles": "public/js/config.js" }
+  }
 }

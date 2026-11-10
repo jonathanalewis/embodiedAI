@@ -1,3 +1,5 @@
+import { ASSISTANT } from "./config.js";
+
 // The display. Everything that draws on screen goes through here, so a
 // different screen (Galbot's own display, a sign-language panel) can be
 // plugged in later without touching the conversation logic.
@@ -69,6 +71,9 @@ export function createStage() {
         scrollDown(side);
         return span;
       },
+      clearMeta() {
+        meta.replaceChildren();
+      },
       addSource(url, title) {
         let host = url;
         try {
@@ -130,7 +135,7 @@ export function createStage() {
       for (const k of ["A", "B"]) sides[k].root.classList.toggle("listening", !auto && k === side);
       if (auto) orbLabel.textContent = `${langs.A.native} ⇄ ${langs.B.native}`;
       else orbLabel.textContent = side ? `${side === "A" ? "←" : ""} ${langs[side].native} ${side === "B" ? "→" : ""}`.trim() : "";
-      orbLabel.title = auto ? "Automatic: Galbot detects which language is spoken" : "Galbot is listening for this language";
+      orbLabel.title = auto ? `Automatic: ${ASSISTANT.name} detects which language is spoken` : `${ASSISTANT.name} is listening for this language`;
     },
 
     // idle | listening | hearing | translating | thinking | searching | speaking | off

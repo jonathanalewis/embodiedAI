@@ -195,6 +195,15 @@ export function createEars({ onInterim, onUtterance, onStatus }) {
       }
       if (!rec) scheduleRestart();
     },
+    // Throw away what's been heard so far and start a fresh recognizer
+    // (same language). Used when the mic only picked up our own voice.
+    restart() {
+      if (!wanted) return;
+      clearTimeout(commitTimer);
+      heard = "";
+      stop();
+      scheduleRestart();
+    },
     pause() {
       wanted = false;
       clearTimeout(commitTimer);

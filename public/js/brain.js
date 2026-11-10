@@ -36,7 +36,7 @@ export async function runTurn(payload, onEvent, signal) {
     });
   } catch (err) {
     if (err.name === "AbortError") return;
-    onEvent({ t: "error", message: "Can't reach the Galbot server. Check the internet connection." });
+    onEvent({ t: "error", message: "Can't reach the server. Check the internet connection." });
     onEvent({ t: "done", timing: {} });
     return;
   }

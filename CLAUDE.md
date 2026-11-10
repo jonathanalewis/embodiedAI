@@ -1,5 +1,8 @@
 # Notes for Claude Code (Galbot Interpreter)
 
+Galbot is the robot. The interpreter persona is called **Click** (`ASSISTANT.name` in `public/js/config.js`,
+also read by the server prompts). Internal code names (`galbot_to`, `galbot-parser.js`) are kept on purpose.
+
 The two people working in this repo are mechanical engineers, not software engineers.
 Explain what they need to do in plain steps. Keep code simple and readable.
 

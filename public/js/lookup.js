@@ -1,15 +1,27 @@
-// Free look-ups for free mode (no Claude key): "Galbot, look up ___" or
-// "Galbot, tell me more about that". Uses Wikipedia, in the asker's language.
-// (With a Claude key, Galbot uses Claude's web search instead, which is smarter.)
+// Free look-ups for free mode (no Claude key): "Hey Click, look up ___" or
+// "Hey Click, tell me more about that". Uses Wikipedia, in the asker's language.
+// "Hey Click, tell them about ___" answers the OTHER person, in their language.
+// (With a Claude key, Claude's web search is used instead, which is smarter.)
 //
 // Without Claude there's nothing to "understand" the request, so this works
-// on simple patterns: Galbot's name (or a common mishearing) at the start or
-// end, then whatever topic is left after removing filler words.
+// on simple patterns: the name (or a common mishearing) at the start or end,
+// then whatever topic is left after removing filler words.
 
-// Galbot's name as speech recognition tends to write it (accents removed).
-const NAME = "(?:hey |ok |okay |oye )?(?:gal+ ?b[oa]t+s?|gall ?bot|call ?bot|cal ?bot|gold ?bot|gal ?but|galbo|galvo|gabot|gaul ?bot)";
-const AT_START = new RegExp(`^${NAME}\\b[\\s,.:;!?-]*`, "i");
-const AT_END = new RegExp(`[\\s,.:;!?-]*\\b${NAME}[\\s.!?]*$`, "i");
+import { ASSISTANT } from "./config.js";
+
+const escape = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/ /g, "\\s?");
+const NAME = `(?:${[ASSISTANT.name.toLowerCase(), ...ASSISTANT.soundsLike].map(escape).join("|")})`;
+const GREETING = `(?:(?:hey|hi|hello|ok|okay|oye|hola|eh|ey|oi|嘿|喂|헤이|ヘイ|ねえ|эй|ей|अरे|هاي)[\\s,、，]*)${ASSISTANT.needsGreeting ? "" : "?"}`;
+const AT_START = new RegExp(`^${GREETING}${NAME}(?![\\p{L}])[\\s,.:;!?¡¿、，。-]*`, "iu");
+// "..., Click?" at the end only counts when the name isn't an everyday word.
+const AT_END = ASSISTANT.needsGreeting ? /$^/ : new RegExp(`[\\s,.:;!?、，。-]*(?<![\\p{L}])${NAME}[\\s.!?。？！]*$`, "iu");
+
+// "Tell them / explain to her ...": answer the other person instead of the asker.
+const TO_OTHER = [
+  /\b(tell|explain( this| that| it)? to|let) (them|him|her|the other person)( know)?( about)?\b/gi,
+  /\b(dile|digale|dile a (el|ella)|explicale|cuentale|avisale)\b/gi,
+  /\b(dis-lui|explique-lui|diga (a|para) (ele|ela)|fala pra (ele|ela)|explica (a|para) (ele|ela)|sag (ihm|ihr)|erklar (ihm|ihr)|digli|dille|spiegagli|spiegale)\b/gi,
+];
 
 // Filler words around the topic (a few common languages; others still work,
 // because Wikipedia's search ignores most extra words).
@@ -17,29 +29,37 @@ const FILLER = [
   /\b(can|could|would) you\b/gi, /\bplease\b/gi, /\b(look|looking) (up|into)\b/gi, /\bsearch( for)?\b/gi,
   /\bfind( out)?\b/gi, /\btell (me|us|her|him|them)\b/gi, /\b(give|get) (me|us)\b/gi, /\b(a little |a bit |some )?more( detail(s)?| information| info)?\b/gi,
   /\b(about|on|regarding)\b/gi, /\bwhat('s| is| are| was| were)\b/gi, /\bwho('s| is| was)\b/gi, /\bexplain\b/gi,
-  /\b(puedes|podrías|podria|por favor|busca(r)?|dime|cuéntame|cuentame|más|mas|información|informacion|detalles?|sobre|acerca de|qué es|que es|quién es|quien es)\b/gi,
+  /\b(puedes|podrias|podria|por favor|busca(r)?|dime|cuentame|mas|informacion|detalles?|sobre|acerca de|que es|quien es)\b/gi,
   /\b(peux-tu|pouvez-vous|s'il (te|vous) plait|cherche(r)?|dis-moi|plus|d'informations|sur|qu'est-ce que)\b/gi,
 ];
-const POINTERS = /^(that|this|it|those|these|eso|esto|ese|esa|ça|cela|isso|isto|das|questo|quello)( (thing|word|one|part|cosa|palabra|parte))?$/i;
+const POINTERS = /^(that|this|it|those|these|eso|esto|ese|esa|ça|cela|isso|isto|das|questo|quello)( (thing|word|one|part|policy|rule|cosa|palabra|parte))?$/i;
 
-// If the utterance is addressed to Galbot, returns { topic } ("" = "that").
-export function freeGalbotRequest(text) {
+// If the utterance is addressed to the interpreter, returns
+// { topic, toOther } (topic "" = "that"; toOther = speak to the other person).
+export function freeAssistantRequest(text) {
   const original = text.trim();
   let rest;
   if (AT_START.test(original)) rest = original.replace(AT_START, "");
   else if (AT_END.test(original)) rest = original.replace(AT_END, "");
   else return null;
+  if (!rest.replace(/[\p{P}\s]/gu, "")) return { bare: true }; // just the name, nothing asked yet
   let topic = rest;
+  let toOther = false;
   // Filler removal only for Latin-script languages (accents removed first so
   // the word patterns match); other scripts go to Wikipedia as they are.
   if (/^[\p{Script=Latin}\p{N}\p{P}\s]*$/u.test(topic)) {
-    topic = topic.normalize("NFD").replace(/[̀-ͯ]/g, "");
+    topic = topic.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    for (const f of TO_OTHER) {
+      if (f.test(topic)) toOther = true;
+      f.lastIndex = 0;
+      topic = topic.replace(f, " ");
+    }
     for (const f of FILLER) topic = topic.replace(f, " ");
   }
   topic = topic.replace(/[¿?¡!.,;:"“”]/g, " ").replace(/\s+/g, " ").trim();
   topic = topic.replace(/^(the|a|an|el|la|los|las|le|les|un|una|o|a|der|die|il|lo)\s+/i, "");
   if (POINTERS.test(topic)) topic = "";
-  return { topic };
+  return { topic, toOther };
 }
 
 // Search Wikipedia in `lang`. Returns the article's opening section split

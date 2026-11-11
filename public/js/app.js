@@ -8,9 +8,11 @@
 // utterance and at its end. If the detector can't run, tapping a side's
 // language button says who is about to speak.
 //
-// Adding on: if the same person talks over the translation, the interpreter
-// stops, listens, and re-translates the whole message. If they add more right
-// after the translation, it is appended to the same lines.
+// Adding on: the mic is off while the interpreter talks (so it never hears
+// itself). To interrupt, tap the orb or press Space: it stops talking and
+// listens to the same person. Whatever that person says next (or says within
+// a few seconds after a translation ends) is tacked on to their message:
+// only the new part is translated and spoken.
 
 import { LANGUAGES, findLanguage, CONTEXT_TURNS, TIMING, ASSISTANT } from "./config.js";
 import { createStage } from "./stage.js";
@@ -45,20 +47,12 @@ const state = {
   utterance: null, // the utterance being heard right now: { startAt, checked, switched, early, prefix, timer }
   pitches: { A: [], B: [] }, // each person's recent voice pitch (Hz), to match their voice
   lastLookUp: null, // free mode: the article last read from, for "tell me more"
-  last: null, // the latest translated message { side, turn, selfLine, out, endedAt, abort } (for adding on)
-  barge: null, // listening while a translation is spoken: { side, since, confirmed, at, checking, lastCheck }
+  last: null, // the latest translated message { side, turn, selfLine, out, endedAt } (for adding on)
 };
 
 const ears = createEars({
   onInterim: (text) => {
     if (!state.active) return;
-    const b = state.barge;
-    if (b && !b.confirmed) return bargeInCheck(text); // is that the person, or our own voice?
-    if (b?.confirmed) {
-      // Talking over the translation: show it as part of the same message.
-      state.last?.selfLine.set(`${state.last.turn.text} ${text}`);
-      return;
-    }
     const u = state.utterance;
     // After a mid-sentence language switch, keep what was said before it.
     stage.interim(state.listenSide, u?.prefixText ? `${u.prefixText} ${text}` : text);
@@ -157,7 +151,6 @@ async function begin() {
   state.pitches = { A: [], B: [] };
   state.lastLookUp = null;
   state.last = null;
-  state.barge = null;
   state.listenSide = "A";
 
   // Things Chrome only allows right after a click, so do them first:
@@ -224,7 +217,6 @@ document.addEventListener("keydown", (e) => {
 // Listening
 // ---------------------------------------------------------------------------
 function listenTo(side) {
-  if (state.barge?.confirmed) return; // someone is talking over the translation; keep their language
   state.listenSide = side;
   stage.setListening(side, state.langs, detector.status === "ready");
   if (!state.active) return;
@@ -265,12 +257,13 @@ function earlyLanguageCheck() {
   if (u.checked || now - u.startAt < TIMING.earlyCheckMs) return;
   u.checked = true;
   const guessed = state.listenSide;
+  const clip = utteranceClip(u.startAt, performance.now());
   detector
-    .whichLanguage(utteranceClip(u.startAt, performance.now()), codes())
+    .whichLanguage(clip, codes())
     .then((result) => {
       if (state.utterance !== u || state.pendingTurns > 0) return;
       const spoken = sideOf(result.code);
-      u.early = { side: spoken, confidence: result.confidence };
+      u.early = { side: spoken, confidence: result.confidence, seconds: clip.length / 16000 };
       if (spoken === guessed || result.confidence < 0.85) return;
       // Wrong language: move to the other side and listen in that language.
       u.switched = true;
@@ -299,8 +292,10 @@ function transcribeBeforeSwitch(u) {
     .catch(() => null);
 }
 
-// After switching mid-utterance, Chrome may not hear anything more (the
-// person may already be done). If so, finish the utterance ourselves.
+// After switching mid-utterance, the new recognizer may hear nothing more
+// (the person may already be done). If no new words arrive within the usual
+// pause plus the recognizer's start-up time, finish the utterance ourselves:
+// the whole thing is written down from the recording anyway.
 function waitForEndAfterSwitch(u) {
   clearTimeout(u.timer);
   u.timer = setTimeout(() => {
@@ -308,37 +303,31 @@ function waitForEndAfterSwitch(u) {
     ears.pause();
     stage.clearInterim(state.listenSide);
     state.utterance = null;
-    handleUtterance(state.listenSide, "", { via: "voice", firstHeardAt: u.startAt, committedAt: performance.now() - 2500, switched: true, prefix: u.prefix });
-  }, TIMING.pauseMs + 2500);
+    handleUtterance(state.listenSide, "", { via: "voice", firstHeardAt: u.startAt, committedAt: performance.now() - TIMING.pauseMs, switched: true, prefix: u.prefix });
+  }, TIMING.pauseMs + 1000);
 }
 
 // At the end of an utterance: who really spoke, and what exactly did they say?
+// Returns { side, text, confirmed } where confirmed = the detector really
+// checked who spoke (only then may an utterance be tacked on to a message).
 async function confirmSpeaker(side, text, meta) {
   if (detector.status !== "ready" || !meta.firstHeardAt) return { side, text };
   const started = performance.now();
   const ms = () => performance.now() - started;
   try {
-    // Someone talked over a translation. If we weren't sure yet, check that
-    // it was really them (not our own voice), then write down their words.
-    if (meta.bargeIn || meta.bargeCandidate) {
-      const clip = detector.clip(meta.firstHeardAt, meta.committedAt);
-      if (meta.bargeCandidate) {
-        const r = await withTimeout(detector.whichLanguage(clip, [state.langs[side].code, state.langs[other(side)].code]), 3000);
-        if (r.code !== state.langs[side].code || r.confidence < 0.8) return { discard: true };
-      }
-      const words = await withTimeout(detector.transcribe(clip, state.langs[side].code), 8000).catch(() => "");
-      if (meta.bargeCandidate && meta.interrupted) voice.stopAll(); // it was them, talking over us
-      return { side, text: words || text, detectMs: ms(), redone: Boolean(words), interrupted: Boolean(meta.interrupted) };
-    }
-    // We switched language mid-sentence: before-the-switch + after-the-switch.
+    // We switched language mid-sentence. Write the whole utterance down again
+    // from the recording, in one pass (most accurate). If that fails, join the
+    // part transcribed before the switch with what Chrome heard after it.
     if (meta.switched) {
-      const before = meta.prefix ? await meta.prefix : null;
-      if (before && text.trim()) return { side, text: joinWithoutOverlap(before, text), detectMs: ms(), redone: true };
-      const redone = await withTimeout(detector.transcribe(utteranceClip(meta.firstHeardAt, meta.committedAt), state.langs[side].code), 10000);
-      return { side, text: redone || before || text, detectMs: ms(), redone: true };
+      const whole = await withTimeout(detector.transcribe(utteranceClip(meta.firstHeardAt, meta.committedAt), state.langs[side].code), 10000).catch(() => "");
+      const before = whole ? null : await meta.prefix;
+      const joined = whole || (before ? joinWithoutOverlap(before, text) : text);
+      return { side, text: joined, detectMs: ms(), redone: true, confirmed: true };
     }
-    // The early check already agreed with Chrome: no need to check again (faster).
-    if (meta.early && meta.early.side === side && meta.early.confidence >= 0.9) return { side, text, detectMs: 0 };
+    // The early check already agreed with Chrome, clearly and on enough audio:
+    // no need to check again (saves time). Otherwise check the whole utterance.
+    const e = meta.early;
+    if (e && e.side === side && e.confidence >= 0.95 && e.seconds >= 1.5) return { side, text, detectMs: 0, confirmed: true };
     const clip = utteranceClip(meta.firstHeardAt, meta.committedAt);
     const seconds = clip.length / 16000;
     if (seconds < 0.6) return { side, text }; // too short to judge
@@ -346,10 +335,10 @@ async function confirmSpeaker(side, text, meta) {
     const spoken = sideOf(result.code);
     // Short clips are easy to misjudge, so ask for more certainty.
     const sure = result.confidence >= (seconds < 1.5 ? 0.9 : 0.75);
-    if (spoken === side || !sure) return { side, text, detectMs: ms() };
+    if (spoken === side || !sure) return { side, text, detectMs: ms(), confirmed: spoken === side && sure };
     // Chrome listened for the wrong language: write it down again in the right one.
     const redone = await withTimeout(detector.transcribe(clip, state.langs[spoken].code), 10000);
-    return { side: spoken, text: redone || text, detectMs: ms(), redone: true };
+    return { side: spoken, text: redone || text, detectMs: ms(), redone: true, confirmed: true };
   } catch (err) {
     console.warn("language check failed; using Chrome's guess", err);
     return { side, text };
@@ -374,61 +363,17 @@ function withTimeout(promise, ms) {
   return Promise.race([promise, new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), ms))]);
 }
 
-// ---------------------------------------------------------------------------
-// Talking over a translation ("barge-in")
-// While a translation is spoken in the other person's language, keep
-// listening for the speaker's language. If the sound really is them (not our
-// own voice coming out of the speakers), stop talking and listen.
-// ---------------------------------------------------------------------------
-function armBargeIn(side) {
-  if (!TIMING.bargeIn || detector.status !== "ready" || !state.active) return;
-  state.barge = { side, since: performance.now(), confirmed: false, at: 0, checking: false, lastCheck: 0 };
-  state.micOpenAt = performance.now();
-  ears.listen(state.langs[side].speech);
-}
-
-function bargeInCheck(text) {
-  const b = state.barge;
-  const now = performance.now();
-  if (b.checking || now - b.lastCheck < 600 || now - b.since < 500) return;
-  b.checking = true;
-  b.lastCheck = now;
-  const from = Math.max(now - 1500, b.since);
-  const mine = state.langs[b.side].code;
-  const theirs = state.langs[other(b.side)].code;
-  detector
-    .whichLanguage(detector.clip(from, now), [mine, theirs])
-    .then((r) => {
-      b.checking = false;
-      if (state.barge !== b || b.confirmed) return;
-      if (r.code === mine && r.confidence >= 0.85 && !isEcho(text)) {
-        // It's the speaker. If the translation is still playing, stop it and
-        // listen; if it just finished, this is simply them adding more.
-        b.confirmed = true;
-        b.at = from;
-        b.afterSpeech = !voice.isSpeaking();
-        if (!b.afterSpeech) {
-          voice.stopAll();
-          state.last?.abort?.();
-        }
-        state.override = b.side;
-        state.listenSide = b.side;
-        state.last?.selfLine.set(`${state.last.turn.text} …`);
-        stage.setOrb("hearing");
-      } else if (r.code === theirs) {
-        ears.restart(); // that was our own voice: throw it away and keep listening
-      }
-    })
-    .catch(() => (b.checking = false));
-}
-
 // Is this utterance the same person adding to their last message?
+// Only when: the language detector confirmed it's the same person, they
+// started speaking AFTER the interpreter stopped talking, and within a few
+// seconds of that. Anything else is a new message.
 function continuationFor(side, meta) {
   const last = state.last;
   if (!last || last.side !== side || !last.out.el.isConnected) return null;
-  if (meta.interrupted) return last;
-  if (meta.via !== "voice" || !meta.firstHeardAt) return null;
-  return meta.firstHeardAt - last.endedAt < TIMING.addOnWindowMs ? last : null;
+  if (meta.via !== "voice" || !meta.firstHeardAt || !meta.speakerConfirmed) return null;
+  const gap = meta.firstHeardAt - last.endedAt; // endedAt is Infinity while still talking
+  const window = last.interruptedByTap ? TIMING.addOnAfterTapMs : TIMING.addOnWindowMs;
+  return gap >= 0 && gap < window ? last : null;
 }
 
 function earsStatus(status) {
@@ -452,26 +397,7 @@ function earsStatus(status) {
 
 function heardUtterance(text, meta) {
   const u = forgetUtterance();
-  const b = state.barge;
-  state.barge = null;
   if (!state.active) return;
-  if (b) {
-    // Heard while a translation was being spoken.
-    if (isEcho(text)) {
-      if (voice.isSpeaking()) armBargeIn(b.side); // our own voice; keep listening
-      return;
-    }
-    handleUtterance(b.side, text, {
-      via: "voice",
-      ...meta,
-      firstHeardAt: b.confirmed ? b.at : Math.max(meta.committedAt - 4000, b.since),
-      bargeIn: b.confirmed,
-      bargeCandidate: !b.confirmed,
-      interrupted: b.confirmed ? !b.afterSpeech : voice.isSpeaking(),
-      endedAt: meta.spokeAt,
-    });
-    return;
-  }
   const side = state.listenSide;
   const selfLine = stage.takeInterim(side);
   if (isEcho(text)) {
@@ -550,11 +476,14 @@ function setupControls() {
       listenTo(side);
     });
   }
-  // Tap the orb to stop the interpreter talking and go back to listening.
-  $("#orb").addEventListener("click", () => {
-    if (!state.active) return;
-    voice.stopAll();
-    if (state.pendingTurns === 0) listenTo(state.listenSide);
+  // Interrupt: tap the orb (or press Space) to stop the interpreter talking.
+  // If it was translating someone's message, it now listens to that person,
+  // and whatever they say next is tacked on to their message.
+  $("#orb").addEventListener("click", interrupt);
+  document.addEventListener("keydown", (e) => {
+    if (e.code !== "Space" || !state.active || e.target.closest("input, select, textarea, button")) return;
+    e.preventDefault();
+    interrupt();
   });
   voice.onActivity((speaking) => {
     if (speaking && state.active) stage.setOrb("speaking");
@@ -565,10 +494,29 @@ function setupControls() {
 // ---------------------------------------------------------------------------
 // One utterance, start to finish
 // ---------------------------------------------------------------------------
+function interrupt() {
+  if (!state.active) return;
+  const wasTalking = voice.isSpeaking();
+  voice.stopAll();
+  const last = state.last;
+  if (wasTalking && last && last.endedAt === Infinity) {
+    last.endedAt = performance.now();
+    last.interruptedByTap = true;
+    stage.setOrb("listening");
+    if (state.pendingTurns > 0) state.override = last.side; // applies when the turn ends
+    else {
+      forgetUtterance();
+      ears.pause();
+      listenTo(last.side);
+    }
+  } else if (state.pendingTurns === 0) {
+    listenTo(state.listenSide);
+  }
+}
+
 function handleUtterance(side, text, meta) {
   state.pendingTurns++;
-  if (!meta.bargeIn && !meta.bargeCandidate) state.barge = null;
-  ears.pause(); // don't listen while working (except to catch someone talking over a translation)
+  ears.pause(); // never listen while working or talking (so we never hear ourselves)
   state.queue = state.queue
     .then(() => processTurn(side, text, meta))
     .catch((err) => console.error(err))
@@ -583,10 +531,8 @@ async function resumeAfterTurn() {
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   await Promise.race([voice.whenIdle(), sleep(60000)]); // never wait forever
   if (state.last && state.last.endedAt === Infinity) state.last.endedAt = performance.now();
-  if (state.barge?.confirmed) return; // they're talking over us; their words are on the way
-  await sleep(TIMING.echoTailMs); // let the room go quiet (still listening for an add-on)
-  if (state.pendingTurns > 0 || !state.active || state.barge?.confirmed) return;
-  state.barge = null;
+  await sleep(TIMING.echoTailMs); // let the room go quiet
+  if (state.pendingTurns > 0 || !state.active) return;
   stage.setOrb("listening");
   listenTo(state.listenSide);
 }
@@ -599,12 +545,6 @@ async function processTurn(side, text, meta) {
     // Check which language was really spoken, and fix the guess if needed.
     stage.setOrb("translating");
     detected = await confirmSpeaker(side, text, meta);
-    if (detected.discard) {
-      // Only our own voice. If we're still talking, keep listening for the person.
-      if (state.last) state.last.selfLine.set(state.last.turn.text);
-      if (voice.isSpeaking()) armBargeIn(side);
-      return;
-    }
     if (detected.side !== side) {
       selfLine?.remove();
       selfLine = null;
@@ -614,17 +554,17 @@ async function processTurn(side, text, meta) {
   }
   if (!text.trim()) {
     selfLine?.remove();
-    if (meta.bargeIn && state.last) state.last.selfLine.set(state.last.turn.text);
     return;
   }
   const toSide = other(side);
   if (meta.via === "voice") rememberPitch(side, meta);
 
-  // Same person adding to what they just said? Talking over the translation
-  // re-translates the whole message; adding right after appends to it.
-  const cont = continuationFor(side, { ...meta, interrupted: meta.interrupted || detected.interrupted });
-  const interrupted = Boolean(cont && (meta.interrupted || detected.interrupted));
-  const sendText = interrupted ? `${cont.turn.text} ${text}` : text;
+  // Same person adding to what they just said? Then only the new part is
+  // translated and spoken, and it's appended to their message on screen.
+  // "Same person" must be confirmed by the language detector. Only if the
+  // detector isn't running do we trust that a tap-to-interrupt meant them.
+  const tappedForThem = detector.status !== "ready" && Boolean(state.last?.interruptedByTap && state.last.side === side);
+  const cont = continuationFor(side, { ...meta, speakerConfirmed: detected.confirmed || tappedForThem });
 
   selfLine ??= stage.line(side, "self");
   selfLine.set(text);
@@ -643,7 +583,6 @@ async function processTurn(side, text, meta) {
   let galbot = null; // the interpreter speaking as itself: { to, say, cap }
   let serverTiming = {};
   let nextSide = toSide; // the other person usually answers next
-  const controller = new AbortController(); // lets someone talking over us stop this turn
 
   // Put this turn's text into the previous message's lines instead of new ones.
   const mergeIntoPrevious = () => {
@@ -655,14 +594,8 @@ async function processTurn(side, text, meta) {
     out.clearMeta();
     turn.text = `${turn.text} ${text}`;
     selfLine.set(turn.text);
-    if (interrupted) {
-      turn.translation = "";
-      out.set("");
-      out.pending();
-    } else {
-      turn.translation += " ";
-      out.append(" ");
-    }
+    turn.translation += " ";
+    out.append(" ");
   };
 
   const onEvent = (ev) => {
@@ -671,10 +604,9 @@ async function processTurn(side, text, meta) {
         route = ev.route;
         if (route === "translate") {
           if (cont) mergeIntoPrevious();
-          state.last = { side, turn, selfLine, out, endedAt: Infinity, abort: () => controller.abort() };
+          state.last = { side, turn, selfLine, out, endedAt: Infinity, interruptedByTap: false };
           // Spoken in a voice a bit like the speaker's own (free voice matching).
           speech = voice.stream({ lang: state.langs[toSide], style: "person", pitchHz: personPitch(side) });
-          armBargeIn(side);
         } else if (route === "galbot") {
           out.remove();
           selfLine.el.classList.add("to-galbot");
@@ -752,21 +684,19 @@ async function processTurn(side, text, meta) {
         out.remove();
         nextSide = side; // they said the name; their question is coming
       } else if (ask) await runFreeLookUp(side, ask, onEvent);
-      else await runFreeTurn({ text: sendText, from: state.langs[side], to: state.langs[toSide] }, onEvent);
+      else await runFreeTurn({ text, from: state.langs[side], to: state.langs[toSide] }, onEvent);
     } else {
       await runTurn(
         {
-          text: sendText,
+          text,
           speaker: side,
           langs: { A: state.langs.A.name, B: state.langs.B.name },
-          // When re-translating a message, don't also send its old version.
-          history: state.turns.filter((t) => !(interrupted && t === cont.turn)).slice(-CONTEXT_TURNS),
+          history: state.turns.slice(-CONTEXT_TURNS),
           instructions: state.instructions.map((i) => ({ id: i.id, text: i.text })),
           via: meta.via,
           confidence: meta.confidence,
         },
-        onEvent,
-        controller.signal
+        onEvent
       );
     }
   } finally {
@@ -780,7 +710,7 @@ async function processTurn(side, text, meta) {
 
   // Number check: every number in the original must survive translation.
   if (route === "translate" && newTranslation.trim()) {
-    const mismatch = checkNumbers(interrupted ? turn.text : text, newTranslation);
+    const mismatch = checkNumbers(text, newTranslation);
     if (mismatch) {
       const detail = `${mismatch.missing.join(", ") || "—"} → ${mismatch.extra.join(", ") || "—"}`;
       const html = `⚠ numbers differ: ${escapeHtml(detail)}`;
@@ -789,7 +719,7 @@ async function processTurn(side, text, meta) {
     }
   }
   if (out.el.isConnected && !out.text.trim() && !out.el.querySelector(".warn")) out.remove();
-  if (merged) selfLine.addMeta(interrupted ? "＋ added on (re-translated)" : "＋ added on", "latency");
+  if (merged) selfLine.addMeta("＋ added on", "latency");
 
   // Latency readout, measured from the speaker's last word (or the Enter key).
   const target = route === "translate" ? out : galbot?.say || repeatLine;

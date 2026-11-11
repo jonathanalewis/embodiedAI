@@ -47,8 +47,9 @@ The orb shows Click's state: slow breathing = idle, blue glow = listening, pulsi
 ### Handy controls
 
 - **Tap a person's language button** to tell Click who is about to speak. Only needed if automatic language detection is off (a note under the orb says so).
-- **Tap the orb** to stop Click talking.
-- **Adding more:** if you start talking again while Click is translating, Click stops, listens, and re-translates your whole message (marked "＋ added on (re-translated)"). If you add more within about 4 seconds after Click finishes, it's added to the same lines and only the new part is translated and spoken ("＋ added on").
+- **Interrupt: tap the orb or press Space** while Click is translating. Click stops talking and listens to you; what you say next is tacked on to your message (only the new part is translated and spoken; nothing is repeated).
+- **Adding more:** if you say more within about 4 seconds after Click finishes, and the language detector confirms it's you, it's added to the same lines ("＋ added on") and only the new part is translated and spoken. If the other person answers, it's always a new message on their side.
+- The mic is **off while Click is talking**, so Click never translates its own voice. Words said while Click is talking aren't heard; tap the orb or press Space first.
 - **Typing box** at the bottom of each side: type instead of talking if the mic misbehaves.
 
 ### Talking to Click
@@ -138,7 +139,7 @@ Chrome's free speech recognition can only listen for one language at a time, so 
 
 So the same person can pause and keep talking, or the other person can reply, and Click follows. The model (~100 MB) downloads once per computer the first time you press Begin. Until it's ready (and on any computer where it can't run), Click falls back to alternating languages and says so under the orb. If Claude is set up, it also spots garbled transcripts and asks the person to repeat.
 
-Click never translates itself: while a translation plays, Click only listens for the *speaker's* language and checks by sound that it's really them (not Click's own voice from the speakers) before stopping; anything heard that matches what Click just said is ignored. Chrome sometimes stops recognition on its own, so Click restarts it automatically, and if the mic is blocked or missing it says so under the orb.
+Click never hears itself: the mic is off while Click speaks plus 0.4 s afterwards, and anything heard that matches what Click just said is ignored. Chrome sometimes stops recognition on its own, so Click restarts it automatically, and if the mic is blocked or missing it says so under the orb.
 
 ---
 

@@ -27,6 +27,14 @@ Explain what they need to do in plain steps. Keep code simple and readable.
 - Audio input (`ears.js`), speech output (`voice.js`) and display (`stage.js`) stay behind their small
   interfaces so sign language, voice cloning and Galbot's own hardware can plug in later.
 
+## Testing (do this before pushing changes to listening or turn logic)
+- `node tests/conversation.test.cjs` runs 13 simulated conversations in a real browser (free mode, all
+  speech/voice/model parts faked realistically). All must pass. If you change behavior, add a scenario.
+- Lesson learned: listening while the interpreter talks ("barge-in") caused the other person's replies to be
+  attributed to the speaker and garbage ("I'm sorry") to be tacked on. The mic stays OFF while speaking;
+  interrupting is explicit (tap the orb / Space). Don't reintroduce barge-in without a scenario proving
+  the other person's replies still work.
+
 ## Conventions
 - Adding a language = one line in `public/js/config.js`.
 - Models are constants at the top of `api/turn.js`. Check current model IDs in the Anthropic docs before changing.

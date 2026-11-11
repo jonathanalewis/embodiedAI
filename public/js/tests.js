@@ -41,7 +41,7 @@ const CASES = [
     history: [{ who: "B", text: "Tiene que presentar el formulario antes de la fecha límite o se aplicará un recargo por demora.", translation: "You have to submit the form before the deadline or a late surcharge will be applied." }],
     expect: { route: "galbot" },
   },
-  { group: "Click", title: "Misheard as \"hey quick\"", langs: ["en", "es"], text: "hey quick what does deductible mean", expect: { route: "galbot" } },
+  { group: "Click", title: "Misheard as \"hey clique\"", langs: ["en", "es"], text: "hey clique what does deductible mean", expect: { route: "galbot" } },
   {
     group: "Click", title: "Misheard as \"OK clique\"", langs: ["en", "es"], text: "OK clique could you repeat what she just said",
     history: [{ who: "B", text: "La próxima cita es el jueves a las tres.", translation: "The next appointment is on Thursday at three." }],

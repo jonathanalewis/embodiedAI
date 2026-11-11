@@ -7,7 +7,7 @@
 // "Hey Click / OK Click ..." counts (with a Claude key, Claude judges context).
 export const ASSISTANT = {
   name: "Click",
-  soundsLike: ["click", "clic", "klick", "klik", "clik", "clique", "cliq", "quick", "클릭", "クリック", "克里克", "点击", "كليك", "клик", "клік", "क्लिक"],
+  soundsLike: ["click", "clic", "klick", "klik", "clik", "clique", "cliq", "클릭", "クリック", "克里克", "点击", "كليك", "клик", "клік", "क्लिक"],
   needsGreeting: true,
 };
 
@@ -45,9 +45,9 @@ export const TIMING = {
   finalGraceMs: 250, // wait this long after Chrome itself says "phrase finished"
   echoTailMs: 400, // after the interpreter stops talking, wait this long before switching languages
   restartDelayMs: 150, // pause before restarting recognition after it stops
-  earlyCheckMs: 700, // how far into speech the first language check happens
+  earlyCheckMs: 900, // how far into speech the first language check happens (shorter = less accurate)
   addOnWindowMs: 4000, // same person speaks again this soon after the translation = adding on
-  bargeIn: true, // talking over a translation makes the interpreter stop and listen
+  addOnAfterTapMs: 10000, // after tapping to interrupt, how long their next words still count as adding on
 };
 
 export const VOICE = {
